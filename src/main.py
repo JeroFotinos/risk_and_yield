@@ -23,7 +23,6 @@ def _to_array(x, shape: Tuple[int, ...]) -> Array:
         return np.full(shape, float(x))
     if x.shape == shape:
         return x
-    # Allow row/col vectors to broadcast
     if x.ndim == 1 and x.shape[0] in shape:
         if x.shape[0] == shape[0]:
             return np.tile(x[:, None], (1, shape[1]))
@@ -81,68 +80,74 @@ class Weather:
     def T(self) -> int:
         return self.temp.shape[0]
 
-
 @dataclass
 class CropParams:
     """Crop- and model-parameters controlling growth/stress dynamics.
     Many names mirror the original MATLAB variables for traceability.
+    Defaults here are **maize** (from `parametros_maiz.m`).
     """
     # Soil water stress thresholds (fractions of available water)
-    au_up: float = 0.9
-    au_down: float = 0.3
-    au_up_r: float = 0.9
-    au_down_r: float = 0.3
-    au_up_pc: float = 0.9
-    au_down_pc: float = 0.3
+    au_up: float = 0.72
+    au_down: float = 0.20
+    au_up_r: float = 0.69
+    au_down_r: float = 0.0
+    au_up_pc: float = 0.60
+    au_down_pc: float = 0.15
 
     # Shape parameters for the stress response (dimensionless)
-    c_forma: float = 3.0
-    c_forma_r: float = 3.0
-    c_forma_pc: float = 3.0
+    c_forma: float = 4.9
+    c_forma_r: float = 6.0
+    c_forma_pc: float = 1.3
 
     # Canopy cover development (days after sowing, DAS)
-    dds_in: int = 0
-    dds_max: int = 45
-    dds_sen: int = 90
-    dds_fin: int = 120
-    c_in: float = 0.05   # initial cover at emergence
-    c_fin: float = 0.1   # residual cover in senescence
-    alpha1: float = 0.02 # daily growth rate to max cover (modulated by stress)
+    dds_in: int = 7
+    dds_max: int = 47
+    dds_sen: int = 87
+    dds_fin: int = 120    # CHECK! This was “no_days_cultivo” in MATLAB (?)
+    c_in: float = 0.039   # initial cover at emergence
+    c_fin: float = 0.01   # residual cover in senescence
+    c_max: float = 0.89   # maximum attainable cover (maize population default)
+    alpha1: float = (c_max - c_in)/(dds_max - dds_in)  # daily growth rate to max cover
 
     # Root dynamics
-    root_growth_rate: float = 10.0  # mm/day when dds>0 and modulated by ceh_r
-    root_max_mm: float = 2000.0
+    root_growth_rate: float = 30.0  # mm/day (maize)
+    root_max_mm: float = 2000.0    # WHERE DID THIS COME FROM??? (?)
+    layer_threshold_mm: float = 500.0  # per-layer depth used for access rules
+    # This comes from lines 220 to 223 in agromodel_model_plantgrowth_v27.m
 
     # Radiation use efficiency (biomass per MJ PAR)
-    eur_pot: float = 3.0e-3  # tDM / (MJ/m2) -> 3 g/MJ
+    # Units: g DM per MJ PAR (g/MJ)
+    eur_pot: float = 3.65
 
     # Thermal stress (simple trapezoid response)
-    tbr: float = 6.0
-    tor1: float = 18.0
-    tor2: float = 28.0
-    tcr: float = 40.0
+    tbr: float = 8.0
+    tor1: float = 29.0
+    tor2: float = 39.0
+    tcr: float = 45.0
 
-    # Harvest index / ICI (simplified logistic ramp around flowering)
-    df: int = 58  # flowering offset (DAS)
-    ic_in: float = 0.1
-    ic_pot_t: float = 0.55
-    Y: float = 0.05
+    # Harvest index / ICI (logistic ramp around flowering)
+    df: int = 58
+    ic_in: float = 0.001
+    ic_pot_t: float = 0.48
+    Y: float = 0.19
 
     # Transpiration coefficient
-    KC: float = 1.0
+    KC: float = 0.94
 
-    # Optional crude ET0 proxy: et0 = k_t * temp + k_p * par
+    # Optional crude ET0 proxy (only used if ET0 not provided) -- SHOULD NOT BE (?)
     k_et0_T: float = 0.1
     k_et0_PAR: float = 0.02
 
-    # Harvest index to translate biomass to yield
-    harvest_index: float = 0.5
+    # # Harvest index to translate biomass to yield
+    # harvest_index: float = 0.5
+    # Harvest index multiplier (keep 1.0 to avoid double-counting with ICI) -- CHECK (?)
+    harvest_index: float = 1.0
 
 
 @dataclass
 class Results:
     """Simulation outputs (time × space) for key variables."""
-    dates: Array  # day indices 0..T
+    dates: Array  # day indices 0..T-1
     temp: Array
     par: Array
     precip: Array
@@ -163,11 +168,23 @@ class Results:
     cover: Array      # (H,W,T) canopy cover fraction
 
     t_eur: Array      # (H,W,T) thermal stress for RUE
-    eur_act: Array    # (H,W,T) actual RUE (tDM/MJ)
+    eur_act: Array    # (H,W,T) actual RUE (g/MJ scaled by stresses)
 
-    biomass_daily: Array  # (H,W,T)
-    biomass_cum: Array    # (H,W,T)
-    yield_: Array         # (H,W,T) (tDM/ha equivalent units)
+    biomass_daily: Array  # (H,W,T)  [g/m^2/day]
+    biomass_cum: Array    # (H,W,T)  [g/m^2]
+    yield_: Array         # (H,W,T)  [g/m^2] (equivalent units)
+
+    @property
+    def yield_tensor(self) -> Array:
+        """Alias to the 3D yield array for convenience (H×W×T)."""
+        return self.yield_
+
+
+    @property
+    def yield_tensor(self) -> Array:
+        return self.yield_
+    
+    # SIMPLIFY (?)
 
 
 # -----------------------------
@@ -197,12 +214,13 @@ class Soil:
     dds0: Array
     mask_maize: Array
     mask_soy: Array
-    n_layers: int = 4
-    cc: float = 0.30
-    pmp: float = 0.12
-    soil_depth_mm: float | Array = 500.0
+    n_layers: int = 4  # They were working with 4 soil layers in the last version of the code
+    cc: float = 0.27  # capacidad campo para agua disponible 0.32 - 0.35; de parametros_maiz.m
+    pmp: float = 0.12  # es un % funcion espacial del tipo de suelo (laboratorio/mapas); de parametros_maiz.m
+    soil_depth_mm: float | Array = 500.0   # should be the per-layer depth used for access rules
+    # This comes from lines 220 to 223 in agromodel_model_plantgrowth_v27.m
+    # Note that it coincides with `CropParams.layer_threshold_mm` -- CHECK (?)
 
-    # Derived / internal state
     H: int = field(init=False)
     W: int = field(init=False)
 
@@ -265,10 +283,8 @@ class Soil:
         transp = np.zeros((H, W, T))
         ppef = np.zeros((H, W, T))
         eva = np.zeros((H, W, T))
-
-        au = np.zeros((H, W, L, T))  # available water per layer
-        p_au = np.zeros((H, W, T))   # fraction of available water (0-1)
-
+        au = np.zeros((H, W, L, T))
+        p_au = np.zeros((H, W, T))
         ceh = np.zeros((H, W, T))
         ceh_r = np.zeros((H, W, T))
         ceh_pc = np.zeros((H, W, T))
@@ -284,10 +300,10 @@ class Soil:
         # Initial conditions at t=0
         dds = np.copy(self.dds0)
         cover_t = np.where(dds <= cp.dds_in, 0.0, np.where(dds == cp.dds_in, cp.c_in, 1.0))
-        cover[:, :, 0] = cover_t * crop_mask
 
         # Distribute initial water among layers:
         # layer1 = provided water0 (capped at aut), others start at 0.5*aut (capped)
+        cover[:, :, 0] = np.clip(cover_t * crop_mask, 0.0, cp.c_max)
         aut = self.aut * crop_mask
         au[:, :, 0, 0] = np.clip(self.water0, 0, aut)
         for ell in range(1, L):
@@ -298,43 +314,34 @@ class Soil:
         if et0 is None:
             et0 = cp.k_et0_T * weather.temp + cp.k_et0_PAR * weather.par
         et0 = np.maximum(et0, 0.0)
-
-        # Track days since p_au>0.9 for evaporation decay (DD90), per pixel
         DD90 = np.zeros((H, W))
-
-        # Root depth starts at 0
         root[:, :, 0] = 0.0
-
-        # Pre-compute per-day scalars
         par = weather.par.astype(float)
         temp = weather.temp.astype(float)
         prec = weather.precip.astype(float)
 
+        layer_threshold = cp.layer_threshold_mm
+
         # Time loop
         for t in range(T):
-            # Update DAS
+            # Update Days After Sowing
             if t > 0:
                 dds = dds + 1.0 * crop_mask
 
-            # Compute fraction of available water p_au from layers accessible to roots
-            # Determine accessible layers by root depth thresholds every 500 mm as in MATLAB
-            # Convert root depth at t-1 (mm) to number of fully accessible layers (each 500mm)
             if t == 0:
                 root_prev = root[:, :, 0]
             else:
                 root_prev = root[:, :, t - 1]
 
             # water fraction before updating for the day (used for DD90 & evaporation)
-            # Accessible capacity multiplier (1 + I(root>500) + I(root>1000) + ...)
-            layer_threshold = 500.0
+            # Accessible capacity multiplier (e.g., 1 + I(root>500) + I(root>1000) + ...)
             accessible_mult = 1.0
-            for k in range(1, L):
-                accessible_mult = accessible_mult + (root_prev > k * layer_threshold)
-            cap_accessible = aut * accessible_mult
-            sum_layers = au[:, :, 0, t]  # will be overwritten later but ok for pre-evap
+            sum_layers = au[:, :, 0, t]  # will be overwritten later, but ok for pre-evap
             for k in range(1, L):
                 mask_k = (root_prev > k * layer_threshold)
                 sum_layers = sum_layers + au[:, :, k, t] * mask_k
+                accessible_mult = accessible_mult + mask_k
+            cap_accessible = aut * accessible_mult
             with np.errstate(invalid='ignore', divide='ignore'):
                 p_au_now = np.clip(sum_layers / np.maximum(cap_accessible, 1e-9), 0.0, 1.0)
             p_au[:, :, t] = p_au_now
@@ -381,12 +388,13 @@ class Soil:
             ct_i[grow_phase] = ct_old[grow_phase] + (cp.alpha1 * ceh[:, :, t][grow_phase]) * ct_i[grow_phase]
             stay_phase = (dds >= cp.dds_max) & (dds < cp.dds_sen)
             ct_i[stay_phase] = ct_old[stay_phase]
+
             # Senescence
             ct_max = np.maximum.accumulate(cover[:, :, : t + 1], axis=2).max(axis=2) if t > 0 else ct_old
             beta1 = (ct_max - cp.c_fin) / max(cp.dds_fin - cp.dds_sen, 1e-6)
             sen_phase = dds >= cp.dds_sen
             ct_i[sen_phase] = np.maximum(ct_old[sen_phase] - beta1[sen_phase] * (2.0 - ceh[:, :, t][sen_phase]) * ct_i[sen_phase], cp.c_fin)
-            cover[:, :, t] = np.clip(ct_i * crop_mask, 0.0, 1.0)
+            cover[:, :, t] = np.clip(ct_i * crop_mask, 0.0, cp.c_max)
 
             # Transpiration and soil evaporation
             et0_t = float(et0[t])
@@ -419,7 +427,7 @@ class Soil:
                     tr_share[in_layer] = transp_t[in_layer]
                 else:
                     tr_share[in_layer] = transp_t[in_layer] / (k + 1)
-            # if deeper than last threshold, distribute equally among L layers
+            # if deeper than last threshold, distribute equally among L layers -- CHECK (?)
             deeper = root_prev > (L - 1) * layer_threshold
             if np.any(deeper):
                 tr_share[deeper] = transp_t[deeper] / L
