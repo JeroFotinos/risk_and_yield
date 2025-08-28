@@ -37,7 +37,7 @@ water0 = (
 
 soil = Soil(
     mask_maize=mask_maize,
-    mask_soy=np.logical_not(mask_maize),
+    mask_soy=np.logical_not(mask_maize), # no está en la data la máscara de soja.
     lat=lat,
     lon=lon,
     water0=water0,
