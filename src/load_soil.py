@@ -1,13 +1,13 @@
-from main import Soil
-from pprint import pprint
-import numpy as np
 import os
-import pandas as pd
 from pathlib import Path
 from pprint import pprint
+
+from typing import Dict, Any
+
+import numpy as np
 from scipy.io import loadmat
-from typing import Dict
-from typing import Any
+
+from main import Soil
 
 DATA_PATH = Path(Path(__file__).parent, "data")
 
@@ -33,7 +33,7 @@ dds0 = load_matlab_file_as_dict("mat_dds_maiz_est_lowres.mat")["dds_est"]
 water0 = (
     load_matlab_file_as_dict("mat_aguadisp_saocom_maiz_2021-2022_2.mat")["a_disp_campo"]
     / 100
-)
+) # En agromodel es porentaje de agua inicial, no sé si hay que divider por 0 en nuestra sim.
 
 soil = Soil(
     mask_maize=mask_maize,
