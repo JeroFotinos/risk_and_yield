@@ -562,65 +562,106 @@ class Soil:
             cover[:, :, t] = np.clip(ct_i * crop_mask, 0.0, cp.c_max)
 
             # -------------- Transpiration and soil evaporation --------------
-            # Potential evapotranspiration (ET0)
+
+            # ----------- Potential evapotranspiration (ET0)
             et0_t = float(et0[t])
-            # Transpiration
+
+            # ----------- Transpiration
             transp_t = ceh_r[:, :, t] * (cover[:, :, t] * cp.KC) * et0_t
             # where: `ceh_r` is the RUE correction for water stress (0 to 1,
             # where 1 indicates no stress), `cover` is the canopy cover
             # fraction, and `cp.KC` is the crop transpiration coefficient.
             transp[:, :, t] = transp_t
 
-            # Effective precipitation (spatially uniform forcing, applied to all pixels in crop)
+            # ----------- Effective precipitation
+            # (spatially uniform forcing, applied to all pixels in crop)
             ppef_t = effective_precipitation(prec[t])
             ppef[:, :, t] = ppef_t * crop_mask
 
-            # Soil evaporation with DD90 decay when p_au<0.9 (as in script)
+            # ----------- Soil evaporation
+            # with DD90 decay when p_au<0.9 (as in script)
+            # We add a day to the list of days with available water percentage below 0.9
             DD90 = DD90 + 1
+            # We set that counter to 0 for the days where p_au > 0.9
             DD90[p_au_now > 0.9] = 0
+            # Evaporation will be proportional to the potential
+            # evapotranspiration, and the fraction of the area not covered by
+            # the plant, i.e., 1-CT (with CT -> canopy cover).
             eva_t = 1.1 * et0_t * (1.0 - cover[:, :, t])
+            # We select pixels with low available water
             low = p_au_now < 0.9
+            # For those, transpiration is actually reduced by a factor
+            # 1/\sqrt{DD90}, provided that DD90 > 1.
             eva_t[low] = (
-                1.1
-                * et0_t
-                * (1.0 - cover[:, :, t][low])
-                * np.power(np.maximum(DD90[low], 1.0), -0.5)
+                1.1  # why 1.1? (?)
+                * et0_t  # potential evapotranspiration
+                * (
+                    1.0 - cover[:, :, t][low]
+                )  # fraction of area not covered by plant
+                * np.power(
+                    np.maximum(DD90[low], 1.0), -0.5
+                )  # decay in transpiration by reduced soil water
             )
+            # Note: np.power raises the elements of the first array to powers
+            # from second array, element-wise. See docs:
+            # https://numpy.org/doc/stable/reference/generated/numpy.power.html
+
+            # Finally, we save the evaporation for the current time step
+            # (zeroing out the masked areas)
             eva[:, :, t] = eva_t * crop_mask
+
 
             # ------------------
             # Water balance by layers
             # ------------------
+
+            # ----------- Transpiration sharing
             # Split transpiration among accessible layers based on root depth
-            tr_share = np.zeros_like(transp_t)
-            # layer categories as in MATLAB: 0-500, 500-1000, 1000-1500, >1500 ... generalized
+            tr_share = np.zeros_like(transp_t)  # H x W matrix storing the
+            # transpiration share for each layer in pixel (i,j). We'll assume
+            # equipartitioning of transpired water among layers.
+
+            # layer categories as in MATLAB: 0-500, 500-1000, 1000-1500, >1500
+            # ... generalized
             for k in range(L):
+                # First, we define the layer boundaries
                 lower = k * layer_threshold
                 upper = (k + 1) * layer_threshold
+                # Now we create a boolean mask that indicates if roots end at
+                # layer k
                 in_layer = (root_prev > lower) & (root_prev <= upper)
+                # and we calculate the transpiration share for every layer in
+                # pixel (i,j)
                 if k == 0:
                     tr_share[in_layer] = transp_t[in_layer]
                 else:
                     tr_share[in_layer] = transp_t[in_layer] / (k + 1)
-            # if deeper than last threshold, distribute equally among L layers -- CHECK (?)
+            # if deeper than last threshold, distribute equally among L layers
             deeper = root_prev > (L - 1) * layer_threshold
             if np.any(deeper):
                 tr_share[deeper] = transp_t[deeper] / L
 
             # Update layers sequentially (perc from k flows into k+1)
-            # Layer 0: gains effective precipitation minus soil evaporation and transp layer share
-            # Other layers: gain percolation from above, lose transp share
             perc_prev = np.zeros((H, W))
 
             for k in range(L):
-                gain = perc_prev.copy()
+                gain = perc_prev.copy()  # note that this is 0 for k=0
+                # Layer 0: gains effective precipitation minus soil
+                # evaporation and transp layer share
                 if k == 0:
                     gain = gain + ppef[:, :, t] - eva[:, :, t]
+                # Other layers: gain percolation from above, lose transp share
                 loss = tr_share
-                au[:, :, k, t] = np.clip(au[:, :, k, t] + gain - loss, 0.0, aut)
-                # Percolation to next layer if over capacity
+                # 1. We update without constrains, temporarily allowing over
+                # capacity
+                au[:, :, k, t] = au[:, :, k, t] + gain - loss
+                # 2. Percolation to next layer is the excess when in over
+                # capacity
                 perc = np.maximum(au[:, :, k, t] - aut, 0.0)
-                au[:, :, k, t] = au[:, :, k, t] - perc
+                # 3. And *NOW* we clip to correct overcapacity (no need to
+                # substract perc, since it's the excess clipped out)
+                au[:, :, k, t] = np.clip(au[:, :, k, t], 0.0, aut)
+                # Update percolation for next layer
                 perc_prev = perc
 
             # Root growth (mm)
