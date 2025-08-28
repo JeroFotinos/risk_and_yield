@@ -595,9 +595,7 @@ class Soil:
             eva_t[low] = (
                 1.1  # why 1.1? (?)
                 * et0_t  # potential evapotranspiration
-                * (
-                    1.0 - cover[:, :, t][low]
-                )  # fraction of area not covered by plant
+                * (1.0 - cover[:, :, t][low])  # fraction of area not covered by plant
                 * np.power(
                     np.maximum(DD90[low], 1.0), -0.5
                 )  # decay in transpiration by reduced soil water
@@ -609,7 +607,6 @@ class Soil:
             # Finally, we save the evaporation for the current time step
             # (zeroing out the masked areas)
             eva[:, :, t] = eva_t * crop_mask
-
 
             # ------------------
             # Water balance by layers
