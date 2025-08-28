@@ -11,6 +11,7 @@ CropName = Literal["soy", "maize"]
 # Utility helpers
 # -----------------------------
 
+
 def _to_array(x, shape: Tuple[int, ...]) -> Array:
     """Broadcast scalars/1D arrays to a target 2D shape.
     If x is None, returns None. If x is a 1D vector with length matching one
@@ -33,7 +34,7 @@ def _to_array(x, shape: Tuple[int, ...]) -> Array:
 
 def effective_precipitation(pp: Array) -> Array:
     """Piecewise-linear effective precipitation (mm/day) following the MATLAB rule.
-    
+
     Given daily precipitation `pp` (mm), returns ppef.
     The breakpoints are inspired by the original aux/pp_cotas mapping.
     """
@@ -50,6 +51,7 @@ def effective_precipitation(pp: Array) -> Array:
 # Data containers
 # -----------------------------
 
+
 @dataclass
 class Weather:
     """Time series forcing for the model.
@@ -61,6 +63,7 @@ class Weather:
     precip : (T,) daily precipitation (mm)
     et0 : Optional[(T,)] reference ET (mm/day). If None, a crude proxy is used.
     """
+
     temp: Array
     par: Array
     precip: Array
@@ -73,12 +76,16 @@ class Weather:
         if self.et0 is not None:
             self.et0 = np.asarray(self.et0, dtype=float)
         n = len(self.temp)
-        if not (len(self.par) == len(self.precip) == n and (self.et0 is None or len(self.et0) == n)):
+        if not (
+            len(self.par) == len(self.precip) == n
+            and (self.et0 is None or len(self.et0) == n)
+        ):
             raise ValueError("All weather series must share the same length")
 
     @property
     def T(self) -> int:
         return self.temp.shape[0]
+
 
 @dataclass
 class CropParams:
@@ -86,6 +93,7 @@ class CropParams:
     Many names mirror the original MATLAB variables for traceability.
     Defaults here are **maize** (from `parametros_maiz.m`).
     """
+
     # Soil water stress thresholds (fractions of available water)
     au_up: float = 0.72
     au_down: float = 0.20
@@ -103,15 +111,19 @@ class CropParams:
     dds_in: int = 7
     dds_max: int = 47
     dds_sen: int = 87
-    dds_fin: int = 120    # CHECK! This was “no_days_cultivo” in MATLAB (?)
-    c_in: float = 0.039   # initial cover at emergence
-    c_fin: float = 0.01   # residual cover in senescence
-    c_max: float = 0.89   # maximum attainable cover (maize population default)
-    alpha1: float = (c_max - c_in)/(dds_max - dds_in)  # daily growth rate to max cover
+    dds_fin: int = (
+        120  # This was “no_days_cultivo” in MATLAB --- ver linea 29 de agromodel_model_plantgrowth_v27.m
+    )
+    c_in: float = 0.039  # initial cover at emergence
+    c_fin: float = 0.01  # residual cover in senescence
+    c_max: float = 0.89  # maximum attainable cover (maize population default)
+    alpha1: float = (c_max - c_in) / (
+        dds_max - dds_in
+    )  # daily growth rate to max cover
 
     # Root dynamics
     root_growth_rate: float = 30.0  # mm/day (maize)
-    root_max_mm: float = 2000.0    # WHERE DID THIS COME FROM??? (?)
+    root_max_mm: float = 2000.0  # WHERE DID THIS COME FROM??? (?)
     layer_threshold_mm: float = 500.0  # per-layer depth used for access rules
     # This comes from lines 220 to 223 in agromodel_model_plantgrowth_v27.m
 
@@ -147,6 +159,7 @@ class CropParams:
 @dataclass
 class Results:
     """Simulation outputs (time × space) for key variables."""
+
     dates: Array  # day indices 0..T-1
     temp: Array
     par: Array
@@ -159,37 +172,37 @@ class Results:
     soil_evap: Array  # (H,W,T)
 
     au_layers: Array  # (H,W,n_layers,T) available water per layer (mm)
-    p_au: Array       # (H,W,T) fraction of available water
+    p_au: Array  # (H,W,T) fraction of available water
 
-    ceh: Array        # (H,W,T) canopy stress from water
-    ceh_r: Array      # (H,W,T) radiation stress from water
-    ceh_pc: Array     # (H,W,T) HI stress from water
+    ceh: Array  # (H,W,T) canopy stress from water
+    ceh_r: Array  # (H,W,T) radiation stress from water
+    ceh_pc: Array  # (H,W,T) HI stress from water
 
-    cover: Array      # (H,W,T) canopy cover fraction
+    cover: Array  # (H,W,T) canopy cover fraction
 
-    t_eur: Array      # (H,W,T) thermal stress for RUE
-    eur_act: Array    # (H,W,T) actual RUE (g/MJ scaled by stresses)
+    t_eur: Array  # (H,W,T) thermal stress for RUE
+    eur_act: Array  # (H,W,T) actual RUE (g/MJ scaled by stresses)
 
     biomass_daily: Array  # (H,W,T)  [g/m^2/day]
-    biomass_cum: Array    # (H,W,T)  [g/m^2]
-    yield_: Array         # (H,W,T)  [g/m^2] (equivalent units)
+    biomass_cum: Array  # (H,W,T)  [g/m^2]
+    yield_: Array  # (H,W,T)  [g/m^2] (equivalent units)
 
     @property
     def yield_tensor(self) -> Array:
         """Alias to the 3D yield array for convenience (H×W×T)."""
         return self.yield_
 
-
     @property
     def yield_tensor(self) -> Array:
         return self.yield_
-    
+
     # SIMPLIFY (?)
 
 
 # -----------------------------
 # Core model
 # -----------------------------
+
 
 @dataclass
 class Soil:
@@ -214,10 +227,18 @@ class Soil:
     dds0: Array
     mask_maize: Array
     mask_soy: Array
-    n_layers: int = 4  # They were working with 4 soil layers in the last version of the code
-    cc: float = 0.27  # capacidad campo para agua disponible 0.32 - 0.35; de parametros_maiz.m
-    pmp: float = 0.12  # es un % funcion espacial del tipo de suelo (laboratorio/mapas); de parametros_maiz.m
-    soil_depth_mm: float | Array = 500.0   # should be the per-layer depth used for access rules
+    n_layers: int = (
+        4  # They were working with 4 soil layers in the last version of the code
+    )
+    cc: float = (
+        0.27  # capacidad campo para agua disponible 0.32 - 0.35; de parametros_maiz.m
+    )
+    pmp: float = (
+        0.12  # es un % funcion espacial del tipo de suelo (laboratorio/mapas); de parametros_maiz.m
+    )
+    soil_depth_mm: float | Array = (
+        500.0  # should be the per-layer depth used for access rules
+    )
     # This comes from lines 220 to 223 in agromodel_model_plantgrowth_v27.m
     # Note that it coincides with `CropParams.layer_threshold_mm` -- CHECK (?)
 
@@ -270,9 +291,9 @@ class Soil:
                     raise AttributeError(f"Unknown parameter '{k}'")
                 setattr(cp, k, v)
 
-        T = weather.T
-        H, W = self.H, self.W
-        L = int(self.n_layers)
+        T = weather.T  # timesteps
+        H, W = self.H, self.W  # width and height of the Area of Interest
+        L = int(self.n_layers)  # number of soil layers
 
         # Choose crop mask (bool 2D)
         crop_mask = self.mask_maize if crop == "maize" else self.mask_soy
@@ -299,21 +320,31 @@ class Soil:
 
         # Initial conditions at t=0
         dds = np.copy(self.dds0)
-        cover_t = np.where(dds <= cp.dds_in, 0.0, np.where(dds == cp.dds_in, cp.c_in, 1.0))
+        cover_t = np.where(
+            dds <= cp.dds_in, 0.0, np.where(dds == cp.dds_in, cp.c_in, 1.0)
+        )
 
         # Distribute initial water among layers:
         # layer1 = provided water0 (capped at aut), others start at 0.5*aut (capped)
         cover[:, :, 0] = np.clip(cover_t * crop_mask, 0.0, cp.c_max)
+        # en lugar del clip podría poner
+        assert cp.c_in <= cp.c_max <= 1.0
         aut = self.aut * crop_mask
+        # ponemos la densidad de agua inicial en la capa más superficial tal cual
+        # porque es donde se mide el agua inicial, y estimamos la mitad para las capas más profundas
+        # ver agromodel_model_plantgrowth_v27.m > lineas 90 a 93
         au[:, :, 0, 0] = np.clip(self.water0, 0, aut)
         for ell in range(1, L):
             au[:, :, ell, 0] = np.clip(0.5 * aut, 0, aut)
 
         # Helpers for ET0 and soil evaporation decay
         et0 = weather.et0
+        # If evotranspiration is not given, we estimate a refference value
         if et0 is None:
             et0 = cp.k_et0_T * weather.temp + cp.k_et0_PAR * weather.par
         et0 = np.maximum(et0, 0.0)
+
+        # DD90 es el contador de días con sequía - son los días seguidos con agua útil menor a 90% (a generalizar)
         DD90 = np.zeros((H, W))
         root[:, :, 0] = 0.0
         par = weather.par.astype(float)
@@ -322,9 +353,9 @@ class Soil:
 
         layer_threshold = cp.layer_threshold_mm
 
-        # Time loop
+        # ============================= Time loop ============================
         for t in range(T):
-            # Update Days After Sowing
+            # Update (current) Days After Sowing
             if t > 0:
                 dds = dds + 1.0 * crop_mask
 
@@ -333,72 +364,211 @@ class Soil:
             else:
                 root_prev = root[:, :, t - 1]
 
+            # ------------------------ Water Dynamics ------------------------
+
             # water fraction before updating for the day (used for DD90 & evaporation)
             # Accessible capacity multiplier (e.g., 1 + I(root>500) + I(root>1000) + ...)
             accessible_mult = 1.0
-            sum_layers = au[:, :, 0, t]  # will be overwritten later, but ok for pre-evap
+            # sum_layers tiene el agua total del pixel ij, sumando sólo las capas accesibles
+            # por la planta, de acuerdo al largo de su raíz
+            sum_layers = au[
+                :, :, 0, t
+            ]  # will be overwritten later, but ok for pre-evap
             for k in range(1, L):
-                mask_k = (root_prev > k * layer_threshold)
-                sum_layers = sum_layers + au[:, :, k, t] * mask_k
-                accessible_mult = accessible_mult + mask_k
-            cap_accessible = aut * accessible_mult
-            with np.errstate(invalid='ignore', divide='ignore'):
-                p_au_now = np.clip(sum_layers / np.maximum(cap_accessible, 1e-9), 0.0, 1.0)
-            p_au[:, :, t] = p_au_now
+                mask_k = root_prev > k * layer_threshold
+                sum_layers = sum_layers + au[:, :, k, t] * mask_k  # agua
+                # total a ese tiempo accesible por las plantas del pixel ij
+                accessible_mult = accessible_mult + mask_k  # ahora
+                # accessible_mult pasa a ser un array 2D donde el
+                # valor (i,j) indica el número de capas de suelo accesibles
+                # por las plantas en ese pixel, de acuerdo al largo de sus raíces
+            cap_accessible = (
+                aut * accessible_mult
+            )  # cant máxima (capacity) de agua accesible por el pixel ij,
+            # sumando todas las capas (we're doing an element-wise product);
+            # aut es el agua accesible máxima *por capa*, por el cual multiplicamos a accessible_mult
+            # que me dice cuantas capas son accessibles por las plantas en cada pixel
+            with np.errstate(invalid="ignore", divide="ignore"):
+                # el porcentaje de agua útil para las plantas en el pixel ij es el agua total
+                # accessible por las plantas `sum_layers`, dividido el máximo posible `cap_accessible`
+                p_au_now = np.clip(
+                    sum_layers / np.maximum(cap_accessible, 1e-9), 0.0, 1.0
+                )
+            p_au[:, :, t] = p_au_now  # porcentaje de agua útil
 
-            # Water stresses (for CT, EUR, and HI/IC)
+            # ----------- Water stresses coefficients calculation -----------
+            # (for CT, EUR, and HI/IC)
+
+            # Water stress function (generic)
             def stress_sigmoid(pau, up, down, c):
+                """
+                Water stress function based on a sigmoid curve.
+
+                This function is designed to model the water stress response of plants
+                based on the available water (pau) relative to defined upper and lower
+                thresholds (up and down). The shape of the response curve is controlled
+                by the parameter c.
+
+                It implements the basic formula:
+                1 - (exp(hrs*c)-1)/(exp(c)-1)
+
+                Parameters
+                ----------
+                pau : array_like
+                    Available water (porcentaje de agua útil).
+                up : float
+                    Upper threshold for water stress.
+                down : float
+                    Lower threshold for water stress.
+                c : float
+                    Shape parameter for the sigmoid function.
+
+                Returns
+                -------
+                s : array_like
+                    Water stress coefficient (0 to 1) for each pixel (i,j).
+
+                Notes
+                -----
+                `np.expm1` is used to compute the exponential function minus
+                one, for all elements in the array. See docs:
+                https://numpy.org/doc/stable/reference/generated/numpy.expm1.html
+                """
                 hrs = (up - pau) / max(up - down, 1e-6)
                 # 1 - (exp(hrs*c)-1)/(exp(c)-1), clamped to [0,1]
                 num = np.expm1(np.clip(hrs, 0, 1) * c)
                 den = np.expm1(c)
                 s = 1.0 - num / max(den, 1e-9)
+                # we replace values under the minimum by 0
                 s = np.where(pau < down, 0.0, s)
+                # and values over the maximum by 1
                 s = np.where(pau > up, 1.0, s)
                 return s
 
-            ceh[:, :, t] = stress_sigmoid(p_au_now, cp.au_up, cp.au_down, cp.c_forma) * crop_mask
-            ceh_r[:, :, t] = stress_sigmoid(p_au_now, cp.au_up_r, cp.au_down_r, cp.c_forma_r) * crop_mask
-            ceh_pc[:, :, t] = stress_sigmoid(p_au_now, cp.au_up_pc, cp.au_down_pc, cp.c_forma_pc) * crop_mask
+            # Correction for the Canopy Cover CT due to water stress.
+            # Remember that CT_i = CT_{i-1} \pm \alpha/\beta * CEH(t),
+            # depending on the days after sowing. Cf. lines 490 and 507.
+            ceh[:, :, t] = (
+                stress_sigmoid(p_au_now, cp.au_up, cp.au_down, cp.c_forma) * crop_mask
+            )
 
-            # Thermal stress trapezoid for RUE
+            # This is the correction for RUE due to water stress (RUE_{Act} = RUE_{Pot} * T°EUR * CEHR)
+            ceh_r[:, :, t] = (
+                stress_sigmoid(p_au_now, cp.au_up_r, cp.au_down_r, cp.c_forma_r)
+                * crop_mask
+            )
+
+            # Stress for HI/IC - TO BE CHECKED (?)
+            ceh_pc[:, :, t] = (
+                stress_sigmoid(p_au_now, cp.au_up_pc, cp.au_down_pc, cp.c_forma_pc)
+                * crop_mask
+            )
+
+            # ---------------- Thermal stress trapezoid for RUE --------------
             Ti = temp[t]
             ti = np.full((H, W), Ti)
             th = np.zeros_like(ti)
+            # región sin estrés térmico
             th[(ti > cp.tor1) & (ti < cp.tor2)] = 1.0
+            # mask for stressed, yet not null efficiency, due to LOW temperatures -- we “select” those values
             sel = (ti > cp.tbr) & (ti < cp.tor1)
+            # for those, the efficiency is the fraction of departure from the
+            # minimal viable temperature, with respect to the maximum departure.
+            # (Below tbr the efficiency is 0, and above tor1 it is 1, so this is a
+            # linear interpolation between those.)
             th[sel] = (ti[sel] - cp.tbr) / (cp.tor1 - cp.tbr + 1e-9)
+            # Now we select stress, yet not null efficiency points, due to HIGH temperatures
             sel = (ti > cp.tor2) & (ti < cp.tcr)
+            # and we interpolate again
             th[sel] = (cp.tcr - ti[sel]) / (cp.tcr - cp.tor2 + 1e-9)
+            # And finally, T°EUR, the factor that gives us the correction to
+            # the RUE for temperature stress
+            # (remember that RUE_{Act} = RUE_{Pot} * T°EUR * CEHR)
+            # depending on the daily mean temperature, is for the current
+            # time t just these factors applied to the crop mask (so that
+            # non-crop pixels are zeroed out).
             t_eur[:, :, t] = th * crop_mask
 
-            # Actual RUE
+            # Actual RUE:
+            # the Potential RUE (a crop-dependent constant eur_pot),
+            # times the correction for water stress (ceh_r),
+            # times the correction for temperature stress (t_eur).
             eur_act[:, :, t] = cp.eur_pot * ceh_r[:, :, t] * t_eur[:, :, t]
 
-            # Canopy cover dynamics
+            # -------------------- Canopy cover dynamics --------------------
+
+            # Canopy cover at previous time step
             if t > 0:
                 ct_old = cover[:, :, t - 1]
             else:
                 ct_old = cover_t
 
+            # We initialize the array for the current ct
             ct_i = np.ones_like(ct_old)
+
+            # ----------- Pre-leaves stage
+            # Plants that haven't grown leaves yet have 0 cover
             ct_i[dds <= cp.dds_in] = 0.0
+
+            # ----------- Initial Cover
+            # Plants that are in the day where they start to have leaves have
+            # the initial cover c_in
             ct_i[dds == cp.dds_in] = cp.c_in
+
+            # ----------- Growth Phase
+            # Now we select plants that are in the growth phase
             grow_phase = (dds > cp.dds_in) & (dds < cp.dds_max)
-            ct_i[grow_phase] = ct_old[grow_phase] + (cp.alpha1 * ceh[:, :, t][grow_phase]) * ct_i[grow_phase]
+            # and for those, the new canopy cover will be the old one, plus
+            # the potential growth rate alpha, corrected for water stress via
+            # ceh.
+            ct_i[grow_phase] = (
+                ct_old[grow_phase]
+                + (cp.alpha1 * ceh[:, :, t][grow_phase]) * ct_i[grow_phase]
+            )
+
+            # ----------- Stay Phase (Max CT Phase)
             stay_phase = (dds >= cp.dds_max) & (dds < cp.dds_sen)
             ct_i[stay_phase] = ct_old[stay_phase]
 
-            # Senescence
-            ct_max = np.maximum.accumulate(cover[:, :, : t + 1], axis=2).max(axis=2) if t > 0 else ct_old
+            # ----------- Senescence
+            # Max canopy cover up to this point. (It's not the last one if
+            # we're in the senescence phase for some time now.)
+            ct_max = (
+                np.maximum.accumulate(cover[:, :, : t + 1], axis=2).max(axis=2)
+                if t > 0
+                else ct_old
+            )
+
+            # We calculate the slope for the decrease in cover
             beta1 = (ct_max - cp.c_fin) / max(cp.dds_fin - cp.dds_sen, 1e-6)
+
+            # We select pixels in the senescence phase via the dds mask
             sen_phase = dds >= cp.dds_sen
-            ct_i[sen_phase] = np.maximum(ct_old[sen_phase] - beta1[sen_phase] * (2.0 - ceh[:, :, t][sen_phase]) * ct_i[sen_phase], cp.c_fin)
+            # We calculate the new canopy cover, and we take either that, or the stationary canopy cover c_fin
+            ct_i[sen_phase] = np.maximum(
+                ct_old[sen_phase]
+                - beta1[sen_phase] * (2.0 - ceh[:, :, t][sen_phase]) * ct_i[sen_phase],
+                cp.c_fin,
+            )
+            # Note that here they have the correction I suggested from
+            # looking to their manuscript: in ideal water conditions,
+            # the water stress coefficient should be 1, and then we would
+            # reduce canopy cover just by beta1; if we have maximum stress,
+            # the water stress coefficient should be 0, and we would reduce
+            # canopy cover by beta1 times 2.
+
+            # Sanity Enforcement (should be replaced by a sanity check):
+            # no cover should exceed the maximum or be negative.
             cover[:, :, t] = np.clip(ct_i * crop_mask, 0.0, cp.c_max)
 
-            # Transpiration and soil evaporation
+            # -------------- Transpiration and soil evaporation --------------
+            # Potential evapotranspiration (ET0)
             et0_t = float(et0[t])
+            # Transpiration
             transp_t = ceh_r[:, :, t] * (cover[:, :, t] * cp.KC) * et0_t
+            # where: `ceh_r` is the RUE correction for water stress (0 to 1,
+            # where 1 indicates no stress), `cover` is the canopy cover
+            # fraction, and `cp.KC` is the crop transpiration coefficient.
             transp[:, :, t] = transp_t
 
             # Effective precipitation (spatially uniform forcing, applied to all pixels in crop)
@@ -410,7 +580,12 @@ class Soil:
             DD90[p_au_now > 0.9] = 0
             eva_t = 1.1 * et0_t * (1.0 - cover[:, :, t])
             low = p_au_now < 0.9
-            eva_t[low] = 1.1 * et0_t * (1.0 - cover[:, :, t][low]) * np.power(np.maximum(DD90[low], 1.0), -0.5)
+            eva_t[low] = (
+                1.1
+                * et0_t
+                * (1.0 - cover[:, :, t][low])
+                * np.power(np.maximum(DD90[low], 1.0), -0.5)
+            )
             eva[:, :, t] = eva_t * crop_mask
 
             # ------------------
@@ -459,12 +634,14 @@ class Soil:
             sum_layers = au[:, :, 0, t]
             accessible_mult = 1.0
             for k in range(1, L):
-                mask_k = (root[:, :, t] > k * layer_threshold)
+                mask_k = root[:, :, t] > k * layer_threshold
                 sum_layers = sum_layers + au[:, :, k, t] * mask_k
                 accessible_mult = accessible_mult + mask_k
             cap_accessible = aut * accessible_mult
-            with np.errstate(invalid='ignore', divide='ignore'):
-                p_au[:, :, t] = np.clip(sum_layers / np.maximum(cap_accessible, 1e-9), 0.0, 1.0)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                p_au[:, :, t] = np.clip(
+                    sum_layers / np.maximum(cap_accessible, 1e-9), 0.0, 1.0
+                )
 
             # Harvest index dynamics (simplified logistic with cp.df and cp.Y)
             ddf = dds - cp.df
@@ -472,9 +649,10 @@ class Soil:
             # (Optional carry-over stress on ic_pot could be added here)
             ici = np.zeros((H, W))
             mask_flowering = ddf > 0
-            ici[mask_flowering] = (
-                (cp.ic_in * ic_pot[mask_flowering]) /
-                (cp.ic_in + (ic_pot[mask_flowering] - cp.ic_in) * np.exp(-cp.Y * ddf[mask_flowering]))
+            ici[mask_flowering] = (cp.ic_in * ic_pot[mask_flowering]) / (
+                cp.ic_in
+                + (ic_pot[mask_flowering] - cp.ic_in)
+                * np.exp(-cp.Y * ddf[mask_flowering])
             )
 
             # Daily biomass from PAR capture and RUE
@@ -523,13 +701,15 @@ if __name__ == "__main__":
     mask_soy[30:48, 20:50] = True
 
     weather = Weather(
-        temp=20 + 8 * np.sin(np.linspace(0, 2*np.pi, T)),
-        par=25 + 5 * np.sin(np.linspace(0, 2*np.pi, T) + 0.5),
+        temp=20 + 8 * np.sin(np.linspace(0, 2 * np.pi, T)),
+        par=25 + 5 * np.sin(np.linspace(0, 2 * np.pi, T) + 0.5),
         precip=np.maximum(0, 10 * np.random.gamma(0.8, 1, size=T) - 4),
         et0=None,  # will use crude proxy
     )
 
-    soil = Soil(lat, lon, water0, dds0, mask_maize, mask_soy, n_layers=4, soil_depth_mm=500)
+    soil = Soil(
+        lat, lon, water0, dds0, mask_maize, mask_soy, n_layers=4, soil_depth_mm=500
+    )
     res_maize = soil.evolve("maize", weather)
     res_soy = soil.evolve("soy", weather)
     # Access final yield fields (t = T-1): res_maize.yield_[:, :, -1]
