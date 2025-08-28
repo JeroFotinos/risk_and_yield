@@ -10,7 +10,7 @@ from main import Soil
 
 Array = np.ndarray
 
-DATA_PATH = Path(Path(__file__).parent, "data")
+DATA_PATH = Path(Path(__file__).parent, "data", "Soil")
 
 
 # -----------------------------
