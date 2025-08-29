@@ -5,7 +5,7 @@ t1 = datetime(2020,01,01,'Format',formafecha);
 % fecha final
 t2 = datetime(2022,08,30,'Format',formafecha);
 % serie temporal diaria
-FECHA = (t1:t2)';
+FECHA = (t1:t2);
 
 % variables de datos_clima
 TMPMIN=nan(size(FECHA));
@@ -42,7 +42,7 @@ t1 = datetime(2021,10,01,'Format',formafecha);
 % fecha final
 t2 = datetime(2021,11,30,'Format',formafecha);
 % serie temporal diaria
-fechasrad = (t1:t2)';
+fechasrad = (t1:t2);
 idx = find(ismember(FECHA,fechasrad));
 RAD(idx) = radhist_2.RADmjm2;
 
@@ -52,7 +52,7 @@ t1 = datetime(2021,11,30,'Format',formafecha);
 % fecha final
 t2 = datetime(2022,01,16,'Format',formafecha);
 % serie temporal diaria
-fechasrad = (t1:t2)';
+fechasrad = (t1:t2);
 idx = find(ismember(FECHA,fechasrad));
 RAD(idx) = radhist_3.PARMJM2;
 
