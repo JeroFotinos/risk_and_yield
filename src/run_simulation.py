@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from pprint import pprint
 from typing import Any, Dict
@@ -24,10 +23,19 @@ def load_matlab_file_as_dict(filename: str, verbose=False) -> Dict[str, Any]:
         pprint(loaded_dict.keys())
     return loaded_dict
 
+
 def load_wheather(path):
-    df = pd.read_csv(path, sep=';')
-    df['FECHA'] = pd.to_datetime(df['FECHA'], format='%Y%m%d')
-    df.rename(columns={'TMED(C)': 'temp', 'RAD(MJ/M2)': 'par', 'LLUVIA(mm)': 'precip', 'EVAP_TRANS(mm)': 'et0'}, inplace=True)
+    df = pd.read_csv(path, sep=";")
+    df["FECHA"] = pd.to_datetime(df["FECHA"], format="%Y%m%d")
+    df.rename(
+        columns={
+            "TMED(C)": "temp",
+            "RAD(MJ/M2)": "par",
+            "LLUVIA(mm)": "precip",
+            "EVAP_TRANS(mm)": "et0",
+        },
+        inplace=True,
+    )
     return df
 
 
@@ -51,7 +59,12 @@ df_weather: pd.DataFrame = load_wheather(DATA_PATH / "Weather" / "weather.csv")
 # -----------------------------
 # Initialize Soil model
 # -----------------------------
-weather = Weather(temp=df_weather['temp'], par=df_weather['par'], precip=df_weather['precip'], et0=df_weather['et0'])
+weather = Weather(
+    temp=df_weather["temp"],
+    par=df_weather["par"],
+    precip=df_weather["precip"],
+    et0=df_weather["et0"],
+)
 
 target_crop = "maize"
 soil = Soil(
@@ -67,5 +80,5 @@ soil = Soil(
 # Run simulation
 # -----------------------------
 
-soil.evolve(target_crop, weather)
-
+results = soil.evolve(target_crop, weather)
+print(results)
