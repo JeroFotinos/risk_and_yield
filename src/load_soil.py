@@ -35,8 +35,8 @@ lon: Array = load_matlab_file_as_dict("mat_maiz_2021_lon_lowres.mat")["lon_lowre
 dds0: Array = load_matlab_file_as_dict("mat_dds_maiz_est_lowres.mat")["dds_est"]
 water0: Array = (
     load_matlab_file_as_dict("mat_aguadisp_saocom_maiz_2021-2022_2.mat")["a_disp_campo"]
-    / 100
-)  # Si water0 es entre (0,1) hay que dividir. Pregungar a jero
+    / 100.0
+)  # Si water0 es entre (0,1) hay que dividir. Pregungar a jero. Porcentaje de agua util.
 
 # -----------------------------
 # Initialize Soil model
