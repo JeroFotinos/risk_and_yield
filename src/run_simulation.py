@@ -13,13 +13,15 @@ from main import Soil
 Array = np.ndarray
 
 DATA_PATH = Path(Path(__file__).parent, "data")
+WEATHER_CSV_PATH = Path(DATA_PATH, "Weather", "weather.csv")
+SOIL_MAT_PATH = Path(DATA_PATH, "Soil")
 
 
 # -----------------------------
 # Utility helpers
 # -----------------------------
 def load_matlab_file_as_dict(filename: str, verbose=False) -> Dict[str, Any]:
-    loaded_dict: Dict[str, Any] = loadmat(DATA_PATH / "Soil" / filename)
+    loaded_dict: Dict[str, Any] = loadmat(Path(SOIL_MAT_PATH, filename))
     if verbose:
         pprint(loaded_dict.keys())
     return loaded_dict
@@ -89,8 +91,6 @@ def load_weather_from_data(
 # -----------------------------
 start_date = datetime(2021, 12, 4)
 end_date = datetime(2022, 6, 2)
-
-WEATHER_CSV_PATH = Path(DATA_PATH, "Weather", "weather.csv")
 
 mask_maize, mask_soy, lat, lon, dds0, water0 = load_soil_from_data()
 temp, par, precip, et0 = load_weather_from_data(WEATHER_CSV_PATH, start_date, end_date)
