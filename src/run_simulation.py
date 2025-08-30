@@ -1,6 +1,7 @@
 from pathlib import Path
 from pprint import pprint
 from typing import Any, Dict, Tuple
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -24,21 +25,30 @@ def load_matlab_file_as_dict(filename: str, verbose=False) -> Dict[str, Any]:
     return loaded_dict
 
 
-def load_weather(path):
-    df = pd.read_csv(path, sep=";")
-    df["FECHA"] = pd.to_datetime(df["FECHA"], format="%Y%m%d")
+def load_weather(path: Path, start_date: datetime, end_date: datetime) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    df["FECHA"] = pd.to_datetime(df["FECHA"], format="%Y-%m-%d")
     df.rename(
         columns={
-            "TMED(C)": "temp",
-            "RAD(MJ/M2)": "par",
-            "LLUVIA(mm)": "precip",
-            "EVAP_TRANS(mm)": "et0",
+            "FECHA": "scene_date",
+            "TMPMED": "temp",
+            "RAD": "par",
+            "PREC": "precip",
+            "ET0": "et0",
         },
         inplace=True,
     )
+    cols = ["scene_date", "temp", "par", "precip", "et0"]
+    df = df.loc[
+        (df["scene_date"] >= start_date) & (df["scene_date"] <= end_date),
+        cols,
+    ]
     return df
 
 
+# -----------------------------
+# Loaders
+# -----------------------------
 def load_soil_from_data() -> Tuple[Array, Array, Array, Array, Array, Array]:
     mask_maize: Array = load_matlab_file_as_dict("mat_maiz_2021_lowres.mat")[
         "clase_maiz_2021_lowres"
@@ -56,15 +66,20 @@ def load_soil_from_data() -> Tuple[Array, Array, Array, Array, Array, Array]:
     return (mask_maize, mask_soy, lat, lon, dds0, water0)
 
 
-def load_weather_from_data() -> (
-    Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]
-):
-    df_weather: pd.DataFrame = load_weather(DATA_PATH / "Weather" / "weather.csv")
+def load_weather_from_data(
+    data_path: Path, start_time: datetime, end_time: datetime
+) -> Tuple[
+    Array,
+    Array,
+    Array,
+    Array,
+]:
+    df_weather: pd.DataFrame = load_weather(data_path, start_time, end_time)
     temp, par, precip, et0 = (
-        df_weather["temp"],
-        df_weather["par"],
-        df_weather["precip"],
-        df_weather["et0"],
+        df_weather["temp"].to_numpy(),
+        df_weather["par"].to_numpy(),
+        df_weather["precip"].to_numpy(),
+        df_weather["et0"].to_numpy(),
     )
     return temp, par, precip, et0
 
@@ -72,8 +87,13 @@ def load_weather_from_data() -> (
 # -----------------------------
 # Set parameters from data files
 # -----------------------------
+start_date = datetime(2021, 12, 4)
+end_date = datetime(2022, 6, 2)
+
+WEATHER_CSV_PATH = Path(DATA_PATH, "Weather", "weather.csv")
+
 mask_maize, mask_soy, lat, lon, dds0, water0 = load_soil_from_data()
-temp, par, precip, et0 = load_weather_from_data()
+temp, par, precip, et0 = load_weather_from_data(WEATHER_CSV_PATH, start_date, end_date)
 
 # -----------------------------
 # Initialize Soil model
@@ -100,4 +120,3 @@ soil = Soil(
 # -----------------------------
 
 results = soil.evolve(target_crop, weather)
-print(results)
