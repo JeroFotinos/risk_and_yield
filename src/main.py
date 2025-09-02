@@ -7,9 +7,9 @@ Array = np.ndarray
 CropName = Literal["soy", "maize"]
 
 
-# -----------------------------
-# Utility helpers
-# -----------------------------
+# ----------------------------------------------------------------------------
+#                               Utility helpers
+# ----------------------------------------------------------------------------
 
 
 def _to_array(x, shape: Tuple[int, ...]) -> Array:
@@ -47,9 +47,9 @@ def effective_precipitation(pp: Array) -> Array:
     return ppef
 
 
-# -----------------------------
-# Data containers
-# -----------------------------
+# ----------------------------------------------------------------------------
+#                               Data containers
+# ----------------------------------------------------------------------------
 
 
 @dataclass
@@ -138,6 +138,7 @@ class CropParams:
     tcr: float = 45.0
 
     # Harvest index / ICI (logistic ramp around flowering)
+    # (taken from parametros_maiz.m, lines 39 to 42)
     df: int = 58
     ic_in: float = 0.001
     ic_pot_t: float = 0.48
@@ -152,7 +153,6 @@ class CropParams:
     # WARNING: Hargreaves' Equation should have been previously used to estimate ET0
     # ET0(idx) = 0.0023*(TMPMED(idx)+17.78).*(RAD(idx)/2.45).*((TMPMAX(idx) - TMPMIN(idx)).^0.5);
     # as taken from unificar_climas_vs.m > line 61
-
 
     # # Harvest index to translate biomass to yield
     # harvest_index: float = 0.5
@@ -203,9 +203,9 @@ class Results:
     # SIMPLIFY (?)
 
 
-# -----------------------------
-# Core model
-# -----------------------------
+# ----------------------------------------------------------------------------
+#                                  Core model
+# ----------------------------------------------------------------------------
 
 
 @dataclass
@@ -267,9 +267,9 @@ class Soil:
         # Per-layer available water capacity (aut) in mm
         self.aut = self.soil_depth_mm * (float(self.cc) - float(self.pmp))
 
-    # -------------------------
-    # Main evolution routine
-    # -------------------------
+    # ------------------------------------------------------------------------
+    #                          Main evolution routine
+    # ------------------------------------------------------------------------
     def evolve(
         self,
         crop: CropName,
@@ -583,7 +583,7 @@ class Soil:
             ppef[:, :, t] = ppef_t * crop_mask
 
             # ----------- Soil evaporation
-            # with DD90 decay when p_au<0.9 (as in script)
+            # (with DD90 decay when p_au<0.9, as in script)
             # We add a day to the list of days with available water percentage below 0.9
             DD90 = DD90 + 1
             # We set that counter to 0 for the days where p_au > 0.9
@@ -599,9 +599,7 @@ class Soil:
             eva_t[low] = (
                 1.1  # why 1.1? (?)
                 * et0_t  # potential evapotranspiration
-                * (
-                    1.0 - cover[:, :, t][low]
-                )  # fraction of area not covered by plant
+                * (1.0 - cover[:, :, t][low])  # fraction of area not covered by plant
                 * np.power(
                     np.maximum(DD90[low], 1.0), -0.5
                 )  # decay in transpiration by reduced soil water
@@ -614,10 +612,9 @@ class Soil:
             # (zeroing out the masked areas)
             eva[:, :, t] = eva_t * crop_mask
 
-
-            # ------------------
-            # Water balance by layers
-            # ------------------
+            # ----------------------------------------------------------------
+            #                     Water balance by layers
+            # ----------------------------------------------------------------
 
             # ----------- Transpiration sharing
             # Split transpiration among accessible layers based on root depth
@@ -675,37 +672,74 @@ class Soil:
             else:
                 root[:, :, t] = np.minimum(cp.root_max_mm, root[:, :, t - 1] + rg)
 
-            # Recompute p_au after water balance for outputs (at end of day)
-            sum_layers = au[:, :, 0, t]
+            # -------------- Update Fraction of available water --------------
+            # - Recompute p_au after water balance for outputs (at end of day)
+            
+            # For this, we'll calculate the sum of the available water across layers
+            sum_layers = au[:, :, 0, t]  # the initial layer always adds to the total
+            
+            # accessible_mult will indicate the number of layers accessible to
+            # plants in each pixel
             accessible_mult = 1.0
+            
+            # For the other layers, we only sum useful water if they're
+            # accessible by the plants
             for k in range(1, L):
+                # for pixels where roots access the layer k
                 mask_k = root[:, :, t] > k * layer_threshold
+                # we add the available/useful water on layer k to the total,
+                # but only for pixels where roots access the layer
                 sum_layers = sum_layers + au[:, :, k, t] * mask_k
+                # we add layer k to the number of accessible layers for the
+                # appropriate pixels
                 accessible_mult = accessible_mult + mask_k
+
+            # ------ Maximum Capacity
+            # For getting the fraction of available water, we need to know the
+            # water that we actually have sum_layers, but also the maximum
+            # capacity that the accessible layers can hold.
+            # As the per-layer capacity aut is soil_depth_mm * (cc - pmp),
+            # and all layers have the same thickness/depth soil_depth_mm,
+            # we can simply multiply by the number of accessible layers
+            # to get the total depth soil_depth_mm * accessible_mult, thus
+            # obtaining the capacity accessible to plants as
+            # cap_accessible = accessible_mult * soil_depth_mm * (cc - pmp),
+            # i.e., cap_accessible = aut * accessible_mult 
             cap_accessible = aut * accessible_mult
+
+            # ------ Compute Fraction of Available Water
+            # Finally, we compute the fraction of available water by dividing
+            # the water that we actually have on the accessible layers by the
+            # maximum capacity they can hold.
             with np.errstate(invalid="ignore", divide="ignore"):
                 p_au[:, :, t] = np.clip(
                     sum_layers / np.maximum(cap_accessible, 1e-9), 0.0, 1.0
                 )
 
-            # Harvest index dynamics (simplified logistic with cp.df and cp.Y)
+            # -------------------- Harvest index dynamics --------------------
+            # (simplified logistic with cp.df and cp.Y)
             ddf = dds - cp.df
             ic_pot = np.full((H, W), cp.ic_pot_t)
             # (Optional carry-over stress on ic_pot could be added here)
             ici = np.zeros((H, W))
             mask_flowering = ddf > 0
+            # This formula is as taken from agromodel_model_plantgrowth_v27.m,
+            # line 403
             ici[mask_flowering] = (cp.ic_in * ic_pot[mask_flowering]) / (
                 cp.ic_in
                 + (ic_pot[mask_flowering] - cp.ic_in)
                 * np.exp(-cp.Y * ddf[mask_flowering])
             )
 
+            # ---------------- Biomass and Yield Calculation ----------------
             # Daily biomass from PAR capture and RUE
             bi[:, :, t] = np.maximum(0.0, cover[:, :, t] * par[t] * eur_act[:, :, t])
+            # Cumulative biomass
             bt[:, :, t] = bi[:, :, t] if t == 0 else bt[:, :, t - 1] + bi[:, :, t]
+            # Yield
             rend[:, :, t] = bt[:, :, t] * ici * ceh_r[:, :, t] * cp.harvest_index
 
-        # Package results
+        # Package Results
         days = np.arange(T)
         return Results(
             dates=days,
