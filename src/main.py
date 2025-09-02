@@ -146,9 +146,13 @@ class CropParams:
     # Transpiration coefficient
     KC: float = 0.94
 
-    # Optional crude ET0 proxy (only used if ET0 not provided) -- SHOULD NOT BE (?)
+    # WARNING: Optional crude ET0 proxy (only used if ET0 not provided) -- SHOULD NOT BE (?)
     k_et0_T: float = 0.1
     k_et0_PAR: float = 0.02
+    # WARNING: Hargreaves' Equation should have been previously used to estimate ET0
+    # ET0(idx) = 0.0023*(TMPMED(idx)+17.78).*(RAD(idx)/2.45).*((TMPMAX(idx) - TMPMIN(idx)).^0.5);
+    # as taken from unificar_climas_vs.m > line 61
+
 
     # # Harvest index to translate biomass to yield
     # harvest_index: float = 0.5
