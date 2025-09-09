@@ -62,8 +62,9 @@ def load_soil_from_data() -> Tuple[Array, Array, Array, Array, Array, Array]:
         load_matlab_file_as_dict("mat_aguadisp_saocom_maiz_2021-2022_2.mat")[
             "a_disp_campo"
         ]
-        / 100.0
+        # / 100.0
     )  # Si water0 es entre (0,1) hay que dividir. Pregungar a jero. Porcentaje de agua util.
+    # Rta: no, es el agua total por unidad de área del pixel en mm.
     mask_soy = np.zeros_like(mask_maize)
     return (mask_maize, mask_soy, lat, lon, dds0, water0)
 

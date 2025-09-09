@@ -123,7 +123,12 @@ class CropParams:
 
     # Root dynamics
     root_growth_rate: float = 30.0  # mm/day (maize)
-    root_max_mm: float = 2000.0  # WHERE DID THIS COME FROM??? (?)
+    root_max_mm: float = 2000.0  # This comes from
+    # agromodel_model_plantgrowth_v27.m > line 197, where they take the roots
+    # to be the minimum between 2000 mm and the new updated value. I think
+    # they set 2000 mm as the max because they considered 4 layers of 500 mm.
+    # If that's the case, we should generalize this to
+    # root_max_mm = n_layers * layer_threshold_mm
     layer_threshold_mm: float = 500.0  # per-layer depth used for access rules
     # This comes from lines 220 to 223 in agromodel_model_plantgrowth_v27.m
 
@@ -267,6 +272,104 @@ class Soil:
         # Per-layer available water capacity (aut) in mm
         self.aut = self.soil_depth_mm * (float(self.cc) - float(self.pmp))
 
+    # Water stress function (generic)
+    def stress_sigmoid(pau, up, down, c):
+        """
+        Water stress function based on a sigmoid curve.
+
+        This function is designed to model the water stress response of plants
+        based on the available water (pau) relative to defined upper and lower
+        thresholds (up and down). The shape of the response curve is controlled
+        by the parameter c.
+
+        It implements the basic formula:
+        1 - (exp(hrs*c)-1)/(exp(c)-1)
+
+        Parameters
+        ----------
+        pau : array_like
+            Available water (porcentaje de agua útil).
+        up : float
+            Upper threshold for water stress.
+        down : float
+            Lower threshold for water stress.
+        c : float
+            Shape parameter for the sigmoid function.
+
+        Returns
+        -------
+        s : array_like
+            Water stress coefficient (0 to 1) for each pixel (i,j).
+
+        Notes
+        -----
+        `np.expm1` is used to compute the exponential function minus
+        one, for all elements in the array. See docs:
+        https://numpy.org/doc/stable/reference/generated/numpy.expm1.html
+        """
+        hrs = (up - pau) / max(up - down, 1e-6)
+        # 1 - (exp(hrs*c)-1)/(exp(c)-1), clamped to [0,1]
+        num = np.expm1(np.clip(hrs, 0, 1) * c)
+        den = np.expm1(c)
+        s = 1.0 - num / max(den, 1e-9)
+        # we replace values under the minimum by 0
+        s = np.where(pau < down, 0.0, s)
+        # and values over the maximum by 1
+        s = np.where(pau > up, 1.0, s)
+        return s
+
+    # -------------------------- Root growth logic --------------------------
+    def _root_increment(self, ceh_r_t: Array, cp: CropParams) -> Array:
+        """Daily root increment (mm/day) under current water stress."""
+        return cp.root_growth_rate * ceh_r_t
+
+    def _root_next(self, root_prev: Array, ceh_r_t: Array, cp: CropParams) -> Array:
+        """Next-day root length with optional cap."""
+        return np.minimum(cp.root_max_mm, root_prev + self._root_increment(ceh_r_t, cp))
+
+    def _initial_root_lengths(
+        self,
+        dds0: Array,
+        crop_mask: Array,
+        cp: CropParams,
+        # ceh_guess: float = 1.0,
+    ) -> Array:
+        """Initializes root lengths at t=0.
+
+        Current Implementation:
+        -----------------------
+        Currently, roots are initialized to zero, following the original
+        MATLAB code. I guess this is because root length is calculated as
+        root[:, :, t] = np.minimum(cp.root_max_mm, root_prev + rg)
+        where
+        rg = cp.root_growth_rate * ceh_r[:, :, t]
+        and `ceh_r` is the RUE correction for water stress (0 to 1,
+        where 1 indicates no stress), which is based on the available water
+        at time t. Since we don't know the stress history before t=0,
+        they just set root_prev = 0 at t=0, which means that roots start
+        growing from zero at the beginning of the simulation.
+
+        Alternative Implementation (commented out):
+        -------------------------------------------
+        In the future, we could approximate initial root length from
+        days-after-sowing at model start. Since we don't know the stress
+        history before t=0, we could assume a constant stress multiplier
+        `ceh_guess` (defaulting to some reasonable average value). I'll leave
+        hints to this implementation here, commented out.
+        """
+        # # Alternative implementation (commented out):
+        # # We calculate the amount of growth days (dds0 can be negative)
+        # dpos = np.maximum(dds0, 0.0)  # only positive days after sowing
+        # # contribute; dds<0 indicates that the crop will be sown in |dds| days
+
+        # # This would be the implementation with a guess for ceh:
+        # L0 = dpos * cp.root_growth_rate * float(ceh_guess)
+        # L0 = np.minimum(L0, cp.root_max_mm)
+        # return L0 * crop_mask
+
+        # Current implementation: roots start at 0
+        return np.zeros_like(dds0) * crop_mask
+
     # ------------------------------------------------------------------------
     #                          Main evolution routine
     # ------------------------------------------------------------------------
@@ -299,11 +402,11 @@ class Soil:
         H, W = self.H, self.W  # width and height of the Area of Interest
         L = int(self.n_layers)  # number of soil layers
 
-        # Choose crop mask (bool 2D)
+        # ----------- Choose crop mask (bool 2D)
         crop_mask = self.mask_maize if crop == "maize" else self.mask_soy
         crop_mask = crop_mask.astype(float)
 
-        # Allocate arrays
+        # ----------- Allocate arrays
         root = np.zeros((H, W, T))
         transp = np.zeros((H, W, T))
         ppef = np.zeros((H, W, T))
@@ -322,11 +425,10 @@ class Soil:
         bt = np.zeros((H, W, T))
         rend = np.zeros((H, W, T))
 
-        # Initial conditions at t=0
+        # ----------- Initial conditions at t=0
         dds = np.copy(self.dds0)
-        cover_t = np.where(
-            dds <= cp.dds_in, 0.0, np.where(dds == cp.dds_in, cp.c_in, 1.0)
-        )
+        cover_t = np.where(dds <= cp.dds_in, 0.0, 1.0)
+        cover_t = np.where(np.isclose(dds, cp.dds_in), cp.c_in, 1.0)
 
         # Distribute initial water among layers:
         # layer1 = provided water0 (capped at aut), others start at 0.5*aut (capped)
@@ -341,6 +443,8 @@ class Soil:
         for ell in range(1, L):
             au[:, :, ell, 0] = np.clip(0.5 * aut, 0, aut)
 
+        # import ipdb; ipdb.set_trace()
+
         # Helpers for ET0 and soil evaporation decay
         et0 = weather.et0
         # If evotranspiration is not given, we estimate a refference value
@@ -350,7 +454,14 @@ class Soil:
 
         # DD90 es el contador de días con sequía - son los días seguidos con agua útil menor a 90% (a generalizar)
         DD90 = np.zeros((H, W))
-        root[:, :, 0] = 0.0
+
+        # Initialize roots based on dds0
+        root[:, :, 0] = self._initial_root_lengths(dds, crop_mask, cp)
+        # Roots are being initialized to 0 inspite of having dds > 0 at t=0 (!)
+        # This is following the original MATLAB code, but seems odd. See
+        # agromodel_model_plantgrowth_v27.m > line 86 & 197.
+        # Maybe we should estimate an initial_root_lengths (?)
+
         par = weather.par.astype(float)
         temp = weather.temp.astype(float)
         prec = weather.precip.astype(float)
@@ -363,10 +474,9 @@ class Soil:
             if t > 0:
                 dds = dds + 1.0 * crop_mask
 
-            if t == 0:
-                root_prev = root[:, :, 0]
-            else:
-                root_prev = root[:, :, t - 1]
+            # We save the previous root length for water access and root
+            # growth calculations
+            root_prev = root[:, :, 0] if t == 0 else root[:, :, t - 1]
 
             # ------------------------ Water Dynamics ------------------------
 
@@ -401,70 +511,25 @@ class Soil:
             p_au[:, :, t] = p_au_now  # porcentaje de agua útil
 
             # ----------- Water stresses coefficients calculation -----------
-            # (for CT, EUR, and HI/IC)
-
-            # Water stress function (generic)
-            def stress_sigmoid(pau, up, down, c):
-                """
-                Water stress function based on a sigmoid curve.
-
-                This function is designed to model the water stress response of plants
-                based on the available water (pau) relative to defined upper and lower
-                thresholds (up and down). The shape of the response curve is controlled
-                by the parameter c.
-
-                It implements the basic formula:
-                1 - (exp(hrs*c)-1)/(exp(c)-1)
-
-                Parameters
-                ----------
-                pau : array_like
-                    Available water (porcentaje de agua útil).
-                up : float
-                    Upper threshold for water stress.
-                down : float
-                    Lower threshold for water stress.
-                c : float
-                    Shape parameter for the sigmoid function.
-
-                Returns
-                -------
-                s : array_like
-                    Water stress coefficient (0 to 1) for each pixel (i,j).
-
-                Notes
-                -----
-                `np.expm1` is used to compute the exponential function minus
-                one, for all elements in the array. See docs:
-                https://numpy.org/doc/stable/reference/generated/numpy.expm1.html
-                """
-                hrs = (up - pau) / max(up - down, 1e-6)
-                # 1 - (exp(hrs*c)-1)/(exp(c)-1), clamped to [0,1]
-                num = np.expm1(np.clip(hrs, 0, 1) * c)
-                den = np.expm1(c)
-                s = 1.0 - num / max(den, 1e-9)
-                # we replace values under the minimum by 0
-                s = np.where(pau < down, 0.0, s)
-                # and values over the maximum by 1
-                s = np.where(pau > up, 1.0, s)
-                return s
+            #                    (for CT, EUR, and HI/IC)
 
             # Correction for the Canopy Cover CT due to water stress.
             # Remember that CT_i = CT_{i-1} \pm \alpha/\beta * CEH(t),
             # depending on the days after sowing. Cf. lines 490 and 507.
             ceh[:, :, t] = (
-                stress_sigmoid(p_au_now, cp.au_up, cp.au_down, cp.c_forma) * crop_mask
+                self.stress_sigmoid(p_au_now, cp.au_up, cp.au_down, cp.c_forma)
+                * crop_mask
             )
 
             # This is the correction for RUE due to water stress (RUE_{Act} = RUE_{Pot} * T°EUR * CEHR)
             ceh_r[:, :, t] = (
-                stress_sigmoid(p_au_now, cp.au_up_r, cp.au_down_r, cp.c_forma_r)
+                self.stress_sigmoid(p_au_now, cp.au_up_r, cp.au_down_r, cp.c_forma_r)
                 * crop_mask
             )
 
-            # Stress for HI/IC - TO BE CHECKED (?)
+            # Stress correction for HI/IC - TO BE CHECKED (not in doc) (?)
             ceh_pc[:, :, t] = (
-                stress_sigmoid(p_au_now, cp.au_up_pc, cp.au_down_pc, cp.c_forma_pc)
+                self.stress_sigmoid(p_au_now, cp.au_up_pc, cp.au_down_pc, cp.c_forma_pc)
                 * crop_mask
             )
 
@@ -665,23 +730,19 @@ class Soil:
                 # Update percolation for next layer
                 perc_prev = perc
 
-            # Root growth (mm)
-            rg = cp.root_growth_rate * ceh_r[:, :, t]
-            if t == 0:
-                root[:, :, t] = np.minimum(cp.root_max_mm, root_prev + rg)
-            else:
-                root[:, :, t] = np.minimum(cp.root_max_mm, root[:, :, t - 1] + rg)
+            # ----------- Root growth (mm)
+            root[:, :, t] = self._root_next(root_prev, ceh_r[:, :, t], cp)
 
             # -------------- Update Fraction of available water --------------
             # - Recompute p_au after water balance for outputs (at end of day)
-            
+
             # For this, we'll calculate the sum of the available water across layers
             sum_layers = au[:, :, 0, t]  # the initial layer always adds to the total
-            
+
             # accessible_mult will indicate the number of layers accessible to
             # plants in each pixel
             accessible_mult = 1.0
-            
+
             # For the other layers, we only sum useful water if they're
             # accessible by the plants
             for k in range(1, L):
@@ -704,7 +765,7 @@ class Soil:
             # to get the total depth soil_depth_mm * accessible_mult, thus
             # obtaining the capacity accessible to plants as
             # cap_accessible = accessible_mult * soil_depth_mm * (cc - pmp),
-            # i.e., cap_accessible = aut * accessible_mult 
+            # i.e., cap_accessible = aut * accessible_mult
             cap_accessible = aut * accessible_mult
 
             # ------ Compute Fraction of Available Water
