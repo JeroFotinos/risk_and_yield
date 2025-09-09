@@ -89,7 +89,7 @@ def load_weather_from_data(
 # -----------------------------
 # Set parameters from data files
 # -----------------------------
-start_date = datetime(2021, 12, 4)
+start_date = datetime(2021, 12, 4) 
 end_date = datetime(2022, 6, 2)
 
 mask_maize, mask_soy, lat, lon, dds0, water0 = load_soil_from_data()
