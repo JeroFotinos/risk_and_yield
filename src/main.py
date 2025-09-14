@@ -129,7 +129,7 @@ class CropParams:
     # they set 2000 mm as the max because they considered 4 layers of 500 mm.
     # If that's the case, we should generalize this to
     # root_max_mm = n_layers * layer_threshold_mm
-    layer_threshold_mm: float = 500.0  # per-layer depth used for access rules
+    layer_threshold_mm: float = 500.0  # 500.0  # per-layer depth used for access rules
     # This comes from lines 220 to 223 in agromodel_model_plantgrowth_v27.m
 
     # Radiation use efficiency (biomass per MJ PAR)
@@ -273,7 +273,7 @@ class Soil:
         self.aut = self.soil_depth_mm * (float(self.cc) - float(self.pmp))
 
     # Water stress function (generic)
-    def stress_sigmoid(pau, up, down, c):
+    def stress_sigmoid(self, pau, up, down, c):
         """
         Water stress function based on a sigmoid curve.
 
@@ -320,7 +320,11 @@ class Soil:
 
     # -------------------------- Root growth logic --------------------------
     def _root_increment(self, ceh_r_t: Array, cp: CropParams) -> Array:
-        """Daily root increment (mm/day) under current water stress."""
+        """Daily root increment (mm/day) under current water stress.
+        
+        Stress is taken into account via ceh_r_t as in
+        agromodel_model_plantgrowth_v27.m, line 197.
+        """
         return cp.root_growth_rate * ceh_r_t
 
     def _root_next(self, root_prev: Array, ceh_r_t: Array, cp: CropParams) -> Array:
@@ -425,16 +429,40 @@ class Soil:
         bt = np.zeros((H, W, T))
         rend = np.zeros((H, W, T))
 
-        # ----------- Initial conditions at t=0
+        # -------------------- Initial conditions at t=0 --------------------
+        # Copy initial days after sowing
         dds = np.copy(self.dds0)
-        cover_t = np.where(dds <= cp.dds_in, 0.0, 1.0)
-        cover_t = np.where(np.isclose(dds, cp.dds_in), cp.c_in, 1.0)
+
+        # ----------- Canopy cover at t=0
+        cover_t = np.zeros_like(dds, dtype=float)
+
+        # emergence day
+        just_emerged = (dds == cp.dds_in)
+        cover_t[just_emerged] = cp.c_in
+
+        # if already past emergence at t=0, backfill CT consistently:
+        already_growing = (dds > cp.dds_in)
+        # linearly advance from c_in using alpha1, capped at c_max
+        cover_t[already_growing] = np.clip(
+            cp.c_in + (dds[already_growing] - cp.dds_in) * cp.alpha1,
+            0.0, cp.c_max
+        )
+        # Note that this is just an (optimistic) estimate, since we don't know
+        # the stress history. I'd be more realistic to weight by an average
+        # stress ceh.
+        # What they do in the original MATLAB code is just to fill with 1's.
+        # ASK (?)
+        # They'd do something like this:
+        # cover_t = np.where(dds <= cp.dds_in, 0.0, 1.0)
+        # cover_t = np.where(np.isclose(dds, cp.dds_in), cp.c_in, 1.0)
+
+        cover[:, :, 0] = np.clip(cover_t * crop_mask, 0.0, cp.c_max)
+
+        assert cp.c_in <= cp.c_max <= 1.0
+
 
         # Distribute initial water among layers:
         # layer1 = provided water0 (capped at aut), others start at 0.5*aut (capped)
-        cover[:, :, 0] = np.clip(cover_t * crop_mask, 0.0, cp.c_max)
-        # en lugar del clip podría poner
-        assert cp.c_in <= cp.c_max <= 1.0
         aut = self.aut * crop_mask
         # ponemos la densidad de agua inicial en la capa más superficial tal cual
         # porque es donde se mide el agua inicial, y estimamos la mitad para las capas más profundas
@@ -443,13 +471,13 @@ class Soil:
         for ell in range(1, L):
             au[:, :, ell, 0] = np.clip(0.5 * aut, 0, aut)
 
-        # import ipdb; ipdb.set_trace()
-
         # Helpers for ET0 and soil evaporation decay
         et0 = weather.et0
-        # If evotranspiration is not given, we estimate a refference value
+        # if ET0 not provided, compute (not here) Hargreaves (much closer to the MATLAB intent)
         if et0 is None:
-            et0 = cp.k_et0_T * weather.temp + cp.k_et0_PAR * weather.par
+            # need Tmax/Tmin; if you only have Tmean, keep ET0 small to avoid blow-up
+            raise ValueError("Provide ET0 (Hargreaves/Penman-Monteith) instead of the crude proxy.")
+        
         et0 = np.maximum(et0, 0.0)
 
         # DD90 es el contador de días con sequía - son los días seguidos con agua útil menor a 90% (a generalizar)
@@ -479,6 +507,9 @@ class Soil:
             root_prev = root[:, :, 0] if t == 0 else root[:, :, t - 1]
 
             # ------------------------ Water Dynamics ------------------------
+            # carry yesterday's state into today's slot so we can update in-place
+            if t > 0:
+                au[:, :, :, t] = au[:, :, :, t-1]
 
             # water fraction before updating for the day (used for DD90 & evaporation)
             # Accessible capacity multiplier (e.g., 1 + I(root>500) + I(root>1000) + ...)
@@ -683,52 +714,46 @@ class Soil:
 
             # ----------- Transpiration sharing
             # Split transpiration among accessible layers based on root depth
-            tr_share = np.zeros_like(transp_t)  # H x W matrix storing the
-            # transpiration share for each layer in pixel (i,j). We'll assume
-            # equipartitioning of transpired water among layers.
+            # We'll assume equipartitioning of transpired water among layers.
 
-            # layer categories as in MATLAB: 0-500, 500-1000, 1000-1500, >1500
-            # ... generalized
-            for k in range(L):
-                # First, we define the layer boundaries
-                lower = k * layer_threshold
-                upper = (k + 1) * layer_threshold
-                # Now we create a boolean mask that indicates if roots end at
-                # layer k
-                in_layer = (root_prev > lower) & (root_prev <= upper)
-                # and we calculate the transpiration share for every layer in
-                # pixel (i,j)
-                if k == 0:
-                    tr_share[in_layer] = transp_t[in_layer]
-                else:
-                    tr_share[in_layer] = transp_t[in_layer] / (k + 1)
-            # if deeper than last threshold, distribute equally among L layers
-            deeper = root_prev > (L - 1) * layer_threshold
-            if np.any(deeper):
-                tr_share[deeper] = transp_t[deeper] / L
+            # For each pixel, compute the number of accessible layers today
+            n_accessible = np.floor_divide(np.maximum(root_prev, 0.0), layer_threshold).astype(int) + 1
+            n_accessible = np.clip(n_accessible, 1, L)  # ensure in [1, L]
+            
+            # Per-layer mask: for layer k, it's 1 where k < n_accessible, else 0
+            # Shape: (H, W, L)
+            mask_layers = np.stack([ (n_accessible > k) for k in range(L) ], axis=2)
 
-            # Update layers sequentially (perc from k flows into k+1)
+            # Per-pixel share = transp / n_accessible; broadcast to layers, then mask
+            # Shape transp_t: (H, W)  -> expand to (H, W, 1)
+            per_pixel_share = transp_t / np.maximum(n_accessible, 1)
+            loss_layers = mask_layers * per_pixel_share[..., None]  # (H, W, L)
+
+            # Update layers sequentially with correct, layer-specific loss
             perc_prev = np.zeros((H, W))
-
             for k in range(L):
-                gain = perc_prev.copy()  # note that this is 0 for k=0
-                # Layer 0: gains effective precipitation minus soil
-                # evaporation and transp layer share
+                gain = perc_prev.copy()
                 if k == 0:
                     gain = gain + ppef[:, :, t] - eva[:, :, t]
-                # Other layers: gain percolation from above, lose transp share
-                loss = tr_share
-                # 1. We update without constrains, temporarily allowing over
-                # capacity
-                au[:, :, k, t] = au[:, :, k, t] + gain - loss
-                # 2. Percolation to next layer is the excess when in over
-                # capacity
-                perc = np.maximum(au[:, :, k, t] - aut, 0.0)
-                # 3. And *NOW* we clip to correct overcapacity (no need to
-                # substract perc, since it's the excess clipped out)
-                au[:, :, k, t] = np.clip(au[:, :, k, t], 0.0, aut)
-                # Update percolation for next layer
+                loss_k = loss_layers[:, :, k]  # Note the layer-specific loss
+                # au[:, :, k, t] = au[:, :, k, t] + gain - loss
+
+                # perc = np.maximum(au[:, :, k, t] - aut, 0.0)
+                # au[:, :, k, t] = np.clip(au[:, :, k, t], 0.0, aut)
+                # perc_prev = perc
+
+                # unconstrained update
+                new_k = au[:, :, k, t] + gain - loss_k
+
+                # percolation based on over-capacity
+                perc = np.maximum(new_k - aut, 0.0)
+
+                # store (remove percolation) and clip [0, aut]
+                au[:, :, k, t] = np.clip(new_k - perc, 0.0, aut)
+
+                # pass percolation downward
                 perc_prev = perc
+
 
             # ----------- Root growth (mm)
             root[:, :, t] = self._root_next(root_prev, ceh_r[:, :, t], cp)
