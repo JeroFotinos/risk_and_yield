@@ -434,27 +434,30 @@ class Soil:
         dds = np.copy(self.dds0)
 
         # ----------- Canopy cover at t=0
+        # Estimation of initial cover at t=0, based on dds0
         cover_t = np.zeros_like(dds, dtype=float)
 
-        # emergence day
-        just_emerged = (dds == cp.dds_in)
-        cover_t[just_emerged] = cp.c_in
+        # # Posible alternative implementation for initial cover:
+        # # emergence day
+        # just_emerged = (dds == cp.dds_in)
+        # cover_t[just_emerged] = cp.c_in
 
-        # if already past emergence at t=0, backfill CT consistently:
-        already_growing = (dds > cp.dds_in)
-        # linearly advance from c_in using alpha1, capped at c_max
-        cover_t[already_growing] = np.clip(
-            cp.c_in + (dds[already_growing] - cp.dds_in) * cp.alpha1,
-            0.0, cp.c_max
-        )
+        # # if already past emergence at t=0, backfill CT consistently:
+        # already_growing = (dds > cp.dds_in)
+        # # linearly advance from c_in using alpha1, capped at c_max
+        # cover_t[already_growing] = np.clip(
+        #     cp.c_in + (dds[already_growing] - cp.dds_in) * cp.alpha1,
+        #     0.0, cp.c_max
+        # )
         # Note that this is just an (optimistic) estimate, since we don't know
         # the stress history. I'd be more realistic to weight by an average
         # stress ceh.
-        # What they do in the original MATLAB code is just to fill with 1's.
+        # What they do in the original MATLAB code is just to fill with 1's (
+        # see agromodel_model_plantgrowth_v27.m > lines 130~134 and 340~357).
         # ASK (?)
         # They'd do something like this:
-        # cover_t = np.where(dds <= cp.dds_in, 0.0, 1.0)
-        # cover_t = np.where(np.isclose(dds, cp.dds_in), cp.c_in, 1.0)
+        cover_t = np.where(dds <= cp.dds_in, 0.0, 1.0)
+        cover_t = np.where(dds == cp.dds_in, cp.c_in, 1.0)
 
         cover[:, :, 0] = np.clip(cover_t * crop_mask, 0.0, cp.c_max)
 
