@@ -852,32 +852,3 @@ class Soil:
             biomass_cum=bt,
             yield_=rend,
         )
-
-
-# -----------------------------
-# Minimal usage example (pseudo)
-# -----------------------------
-if __name__ == "__main__":
-    H, W, T = 50, 60, 120
-    lat = np.linspace(-32.9, -33.1, H)
-    lon = np.linspace(-64.5, -64.2, W)
-    water0 = np.full((H, W), 60.0)
-    dds0 = np.zeros((H, W)) - 5  # start 5 days before emergence
-    mask_maize = np.zeros((H, W), bool)
-    mask_soy = np.zeros((H, W), bool)
-    mask_maize[10:30, 10:40] = True
-    mask_soy[30:48, 20:50] = True
-
-    weather = Weather(
-        temp=20 + 8 * np.sin(np.linspace(0, 2 * np.pi, T)),
-        par=25 + 5 * np.sin(np.linspace(0, 2 * np.pi, T) + 0.5),
-        precip=np.maximum(0, 10 * np.random.gamma(0.8, 1, size=T) - 4),
-        et0=None,  # will use crude proxy
-    )
-
-    soil = Soil(
-        lat, lon, water0, dds0, mask_maize, mask_soy, n_layers=4, soil_depth_mm=500
-    )
-    res_maize = soil.evolve("maize", weather)
-    res_soy = soil.evolve("soy", weather)
-    # Access final yield fields (t = T-1): res_maize.yield_[:, :, -1]
