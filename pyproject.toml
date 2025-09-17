@@ -1,0 +1,60 @@
+[tool.black]
+line-length = 79
+target-version = ['py312']
+
+[tool.pytest.ini_options]
+addopts = [
+    "--import-mode=importlib",
+]
+
+# =============================================================================
+# PACKAGING
+# =============================================================================
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "risknyield"
+version = "0.0.1"
+dependencies = [
+    "numpy",
+    "h5py",
+    "toml"
+]
+
+requires-python = ">=3.7"
+
+authors = [{name = "Jerónimo Fotinós", email = "jerofoti@gmail.com"}, {name = "Benjamín Marcolongo", email = "benjaminmarcolongo@gmail.com"}]
+
+readme = "README.md"
+
+license = {file = "LICENSE"}
+
+description = "risknyield: A package to estimate yield of crops under risk of extreme weather events."
+
+keywords = [
+    "risknyield",
+    "crop yield",
+    "climate risk",
+]
+
+classifiers = [
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering",
+]
+
+urls = { Homepage = "https://github.com/JeroFotinos/risk_and_yield", Repository = "https://github.com/JeroFotinos/risk_and_yield" }
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["risknyield", "risknyield.*"]
+namespaces = false

@@ -1,0 +1,20 @@
+include LICENSE
+include README.md
+include pyproject.toml
+
+recursive-include risknyield *.py
+recursive-include data *
+recursive-include examples *
+recursive-include .github *
+
+exclude dev-requirements.txt
+exclude tox.ini
+
+recursive-exclude tests *
+recursive-exclude docs *
+recursive-exclude risknyield.egg-info *
+recursive-exclude .pytest_cache *
+recursive-exclude .ipynb_checkpoints *
+recursive-exclude __pycache__ *
+
+include *.yml
