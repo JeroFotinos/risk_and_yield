@@ -52,3 +52,7 @@ Thumbs.db
 
 # Notebooks outputs
 *.nbconvert.ipynb
+
+# Large files
+*.h5
+*.hdf5
