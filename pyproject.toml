@@ -2,10 +2,23 @@
 line-length = 79
 target-version = ['py312']
 
+[tool.flake8]
+extend-ignore =['E203', 'E501']
+max-line-length = 79
+
 [tool.pytest.ini_options]
 addopts = [
+    "--cov=risknyield",
+    "--cov-report=term-missing",
     "--import-mode=importlib",
 ]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+[tool.ipdb]
+context=7
+addopts = "--pdbcls=IPython.terminal.debugger:Pdb"
 
 # =============================================================================
 # PACKAGING
@@ -24,7 +37,7 @@ dependencies = [
     "toml"
 ]
 
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 
 authors = [{name = "Jerónimo Fotinós", email = "jerofoti@gmail.com"}, {name = "Benjamín Marcolongo", email = "benjaminmarcolongo@gmail.com"}]
 
@@ -52,8 +65,22 @@ classifiers = [
 
 urls = { Homepage = "https://github.com/JeroFotinos/risk_and_yield", Repository = "https://github.com/JeroFotinos/risk_and_yield" }
 
+[project.optional-dependencies]
+dev = [
+    "black",
+    "flake8",
+    "flake8-black",
+    "flake8-pyproject",
+    "pytest",
+    "pytest-cov",
+    "coverage",
+    "ipdb",
+    "ipython",
+]
+
 [tool.setuptools]
 include-package-data = true
+
 
 [tool.setuptools.packages.find]
 include = ["risknyield", "risknyield.*"]
