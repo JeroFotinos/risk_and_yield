@@ -331,6 +331,7 @@ class Soil:
         """Next-day root length with optional cap."""
         return np.minimum(cp.root_max_mm, root_prev + self._root_increment(ceh_r_t, cp))
 
+    # ----------------------- Initialization Methods ------------------------
     def _initial_root_lengths(
         self,
         dds0: Array,
@@ -470,6 +471,108 @@ class Soil:
         cover0 = np.clip(cover_t * crop_mask.astype(float), 0.0, float(cp.c_max))
         return cover0
 
+    def _get_init_au_layers_t0(
+        self,
+        water0: np.ndarray,
+        aut: np.ndarray,
+        crop_mask: np.ndarray,
+        *,
+        n_layers: int | None = None,
+        deep_fill_fraction: float = 0.5,
+    ) -> np.ndarray:
+        """
+        Initialize available water per layer at time t=0 (per pixel).
+
+        Parameters
+        ----------
+        water0 : ndarray of shape (H, W)
+            Initial available water measured for the top soil layer (mm) at t=0.
+            Values will be clipped to the corresponding layer capacity.
+        aut : ndarray of shape (H, W) or (H, W, L)
+            Available water capacity (mm). If 2D, the same per-pixel capacity is
+            used for all layers. If 3D, it must provide the per-layer capacity for
+            each pixel. Values are combined with ``crop_mask`` to zero capacities
+            outside the crop.
+        crop_mask : ndarray of shape (H, W), dtype=bool
+            Boolean mask selecting pixels belonging to the target crop. Capacities
+            and initialized water outside the mask are set to zero.
+        n_layers : int, optional
+            Number of soil layers ``L``. If ``aut`` is 3D, it is inferred from
+            ``aut.shape[2]``. If ``aut`` is 2D and ``n_layers`` is not provided,
+            the method attempts to use ``self.n_layers``; otherwise a ``ValueError``
+            is raised.
+        deep_fill_fraction : float, default=0.5
+            Fraction of the (masked) layer capacity used to initialize layers
+            below the top layer (layers 1..L-1). Must satisfy ``0.0 <= deep_fill_fraction <= 1.0``.
+
+        Returns
+        -------
+        au0 : ndarray of shape (H, W, L)
+            Initial available water per layer at ``t=0`` (mm). Values are clipped
+            to the (masked) layer capacities and are zero outside ``crop_mask``.
+
+        Notes
+        -----
+        This routine mirrors the behavior used in the original MATLAB reference
+        (``agromodel_model_plantgrowth_v27.m``, lines 90-93): the measured top-layer
+        water is assigned directly to layer 0 (capped by capacity), while deeper
+        layers are initialized as a fixed fraction of their capacity (default 0.5),
+        also capped. This provides a reasonable starting profile when only surface
+        measurements are available.
+
+        Raises
+        ------
+        ValueError
+            If ``aut.ndim`` is not 2 or 3, or if ``n_layers`` cannot be inferred
+            when ``aut`` is 2D, or if ``deep_fill_fraction`` is outside ``[0, 1]``.
+
+        Examples
+        --------
+        >>> au0 = self._init_au_layers_t0(water0, self.aut, crop_mask, n_layers=self.n_layers)
+        >>> au0.shape
+        (H, W, L)
+        """
+        if not (0.0 <= deep_fill_fraction <= 1.0):
+            raise ValueError("deep_fill_fraction must be in [0, 1].")
+
+        H, W = water0.shape
+        mask3 = crop_mask.astype(float)[..., None]
+
+        # Determine L and build per-layer capacities
+        if aut.ndim == 3:
+            H2, W2, L = aut.shape
+            if (H2, W2) != (H, W):
+                raise ValueError(f"'aut' spatial shape mismatch: {(H2, W2)} vs {(H, W)}")
+            aut_layers = aut.astype(float, copy=False)
+        elif aut.ndim == 2:
+            if n_layers is None:
+                n_layers = getattr(self, "n_layers", None)
+                if n_layers is None:
+                    raise ValueError("Provide n_layers when 'aut' is 2D and self.n_layers is unavailable.")
+            L = int(n_layers)
+            aut_layers = np.broadcast_to(aut.astype(float, copy=False)[..., None], (H, W, L))
+        else:
+            raise ValueError(f"'aut' must be 2D or 3D, got ndim={aut.ndim}.")
+
+        # Apply crop mask to capacities so non-crop pixels are zeroed
+        aut_layers_masked = aut_layers * mask3
+
+        # Allocate output (H, W, L)
+        au0 = np.zeros((H, W, L), dtype=float)
+
+        # Top layer: measured water0, clipped by capacity of layer 0
+        au0[:, :, 0] = np.clip(water0.astype(float, copy=False), 0.0, aut_layers_masked[:, :, 0])
+
+        # Deeper layers: fraction of capacity, clipped
+        if L > 1:
+            au0[:, :, 1:] = np.clip(
+                deep_fill_fraction * aut_layers_masked[:, :, 1:],
+                0.0,
+                aut_layers_masked[:, :, 1:],
+            )
+
+        return au0
+
 
     # ------------------------------------------------------------------------
     #                          Main evolution routine
@@ -538,12 +641,8 @@ class Soil:
         # Distribute initial water among layers:
         # layer1 = provided water0 (capped at aut), others start at 0.5*aut (capped)
         aut = self.aut * crop_mask
-        # ponemos la densidad de agua inicial en la capa más superficial tal cual
-        # porque es donde se mide el agua inicial, y estimamos la mitad para las capas más profundas
-        # ver agromodel_model_plantgrowth_v27.m > lineas 90 a 93
-        au[:, :, 0, 0] = np.clip(self.water0, 0, aut)
-        for ell in range(1, L):
-            au[:, :, ell, 0] = np.clip(0.5 * aut, 0, aut)
+        au_t = self._get_init_au_layers_t0(self.water0, aut, crop_mask, n_layers=L)
+        au[:, :, :, 0] = au_t
 
         # Helpers for ET0 and soil evaporation decay
         et0 = weather.et0
