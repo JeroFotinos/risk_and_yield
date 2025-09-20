@@ -374,6 +374,103 @@ class Soil:
         # Current implementation: roots start at 0
         return np.zeros_like(dds0) * crop_mask
 
+    def _get_init_cover_t0(
+        self,
+        dds: np.ndarray,
+        crop_mask: np.ndarray,
+        cp,
+        *,
+        scheme: str = "fill_ones",
+    ) -> np.ndarray:
+        """
+        Initialize canopy cover at time t=0 on a per-pixel basis.
+
+        Parameters
+        ----------
+        dds : ndarray of shape (H, W)
+            Days after sowing at t=0 for each pixel. Values less than ``cp.dds_in``
+            indicate pre-emergence; values equal to ``cp.dds_in`` indicate emergence;
+            values greater than ``cp.dds_in`` indicate post-emergence. Typically an
+            integer grid, but floats are accepted.
+        crop_mask : ndarray of shape (H, W), dtype=bool
+            Boolean mask that selects pixels belonging to the target crop. Pixels
+            outside the mask are forced to zero cover.
+        cp : object
+            Crop-parameter object providing at least the attributes:
+            ``c_in`` (float), ``dds_in`` (int or float), ``alpha1`` (float),
+            and ``c_max`` (float). Must satisfy ``0.0 <= c_in <= c_max <= 1.0``.
+        scheme : {"fill_ones", "linear"}, default="fill_ones"
+            Initialization scheme:
+            - "fill_ones": Emulates the original MATLAB behavior. Sets cover to
+            0.0 for ``dds < cp.dds_in``, to ``cp.c_in`` for ``dds == cp.dds_in``,
+            and to 1.0 for ``dds > cp.dds_in``; then masks and clips to
+            ``[0.0, cp.c_max]``.
+            - "linear": Uses a linear backfill from ``cp.c_in`` at ``cp.dds_in``
+            with slope ``cp.alpha1`` for ``dds >= cp.dds_in``, clipped to
+            ``[0.0, cp.c_max]``, and 0.0 for ``dds < cp.dds_in``.
+
+        Returns
+        -------
+        cover0 : ndarray of shape (H, W), dtype=float
+            Initial canopy cover fraction at ``t=0`` for the grid. Values are in
+            ``[0.0, cp.c_max]`` and zeroed outside ``crop_mask``.
+
+        Notes
+        -----
+        - The "fill_ones" scheme corresponds to the simplified initialization in
+        the MATLAB reference, which is optimistic for pixels already past
+        emergence at ``t=0``. See agromodel_model_plantgrowth_v27.m > lines
+        130~134 and 340~357.
+        - The "linear" scheme provides a more consistent backfill based on
+        the crop parameters, but may still be optimistic since it does not
+        account for prior stress history (we don't know ceh(t) for t<0).
+        - If ``dds`` is floating-point and may not be exactly integral, you may
+        prefer using a tolerance around ``cp.dds_in`` before equality tests, e.g.
+        ``np.isclose(dds, cp.dds_in, atol=0.5)`` for day-level semantics.
+
+        Raises
+        ------
+        AssertionError
+            If ``cp.c_in > cp.c_max`` or ``cp.c_max > 1.0``.
+
+        Examples
+        --------
+        >>> cover0 = self._get_init_cover_t0(dds, crop_mask, cp, scheme="fill_ones")
+        >>> cover0.shape
+        (H, W)
+        """
+        assert 0.0 <= cp.c_in <= cp.c_max <= 1.0, "Require 0 ≤ c_in ≤ c_max ≤ 1"
+
+        # We initialize to zero
+        cover_t = np.zeros_like(dds, dtype=float)
+
+        # Emergence day
+        just_emerged = (dds == cp.dds_in)
+        cover_t[just_emerged] = cp.c_in
+
+        # We select the ones already growing at t=0
+        already_growing = (dds > cp.dds_in)
+
+        # If already growing, we need to backfill the cover
+        # Constant backfill to 1.0 after emergence (original MATLAB behavior)
+        if scheme == "fill_ones":
+            cover_t[already_growing] = 1.0
+        # Linear backfill from c_in with slope alpha1 for dds ≥ dds_in
+        # (still optimistic since we don't know the stress history; senescence
+        # phase is not handled here)
+        elif scheme == "linear":
+            cover_t[already_growing] = np.clip(
+                cp.c_in + (dds[already_growing] - cp.dds_in) * cp.alpha1,
+                0.0, cp.c_max
+            )
+        else:
+            raise ValueError(f"Unknown scheme '{scheme}'. Use 'fill_ones' or 'linear'.")
+
+        # Mask and clip to [0, c_max]
+        cover0 = np.clip(cover_t * crop_mask.astype(float), 0.0, float(cp.c_max))
+        return cover0
+
+
     # ------------------------------------------------------------------------
     #                          Main evolution routine
     # ------------------------------------------------------------------------
@@ -435,34 +532,8 @@ class Soil:
 
         # ----------- Canopy cover at t=0
         # Estimation of initial cover at t=0, based on dds0
-        cover_t = np.zeros_like(dds, dtype=float)
-
-        # # Posible alternative implementation for initial cover:
-        # # emergence day
-        # just_emerged = (dds == cp.dds_in)
-        # cover_t[just_emerged] = cp.c_in
-
-        # # if already past emergence at t=0, backfill CT consistently:
-        # already_growing = (dds > cp.dds_in)
-        # # linearly advance from c_in using alpha1, capped at c_max
-        # cover_t[already_growing] = np.clip(
-        #     cp.c_in + (dds[already_growing] - cp.dds_in) * cp.alpha1,
-        #     0.0, cp.c_max
-        # )
-        # Note that this is just an (optimistic) estimate, since we don't know
-        # the stress history. I'd be more realistic to weight by an average
-        # stress ceh.
-        # What they do in the original MATLAB code is just to fill with 1's (
-        # see agromodel_model_plantgrowth_v27.m > lines 130~134 and 340~357).
-        # ASK (?)
-        # They'd do something like this:
-        cover_t = np.where(dds <= cp.dds_in, 0.0, 1.0)
-        cover_t = np.where(dds == cp.dds_in, cp.c_in, 1.0)
-
-        cover[:, :, 0] = np.clip(cover_t * crop_mask, 0.0, cp.c_max)
-
-        assert cp.c_in <= cp.c_max <= 1.0
-
+        cover_t = self._get_init_cover_t0(dds, crop_mask, cp, scheme="fill_ones")
+        cover[:, :, 0] = cover_t
 
         # Distribute initial water among layers:
         # layer1 = provided water0 (capped at aut), others start at 0.5*aut (capped)
