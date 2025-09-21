@@ -9,7 +9,7 @@ import pytest
 
 from risknyield.core.data_containers import Soil, Weather
 from risknyield.core.main import CropModel
-from risknyield.core.crops import MaizeParams
+from risknyield.core.crops import CropParams
 from risknyield.library.io_hdf5 import load_results_vars_hdf5
 
 # Tolerances reasonably robust to BLAS / platform differences
@@ -58,7 +58,7 @@ def test_full_results_match_baseline():
     assert BASELINE.exists(), f"Missing baseline fixture: {BASELINE}"
 
     soil, weather = _load_inputs(INPUTS)
-    cur = CropModel(soil=soil, weather=weather, params=MaizeParams()).evolve()
+    cur = CropModel(soil=soil, weather=weather, params=CropParams.maize()).evolve()
 
     # Load all baseline variables in one pass (still selective I/O per variable)
     names = FIELDS_1D + FIELDS_3D + FIELDS_4D

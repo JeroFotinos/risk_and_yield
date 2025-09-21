@@ -1,9 +1,9 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Dict, Optional, Literal, Tuple
+from dataclasses import dataclass
 import numpy as np
 
-from risknyield.core.data_containers import Results, Weather, CropParams, Soil
+from risknyield.core.data_containers import Results, Weather, Soil
+from risknyield.core.crops import CropParams
 from risknyield.library.hydrology import effective_precipitation
 
 Array = np.ndarray

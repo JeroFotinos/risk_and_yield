@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from abc import ABC, abstractmethod
-from typing import Optional, Tuple, ClassVar
+from typing import Tuple
 
 import numpy as np
 
@@ -32,19 +31,6 @@ def _to_array(x: Array | float | int, shape: Tuple[int, int]) -> Array:
         arr = np.broadcast_to(arr, shape).astype(np.float64, copy=False)
     return arr
 
-def effective_precipitation(pp: Array) -> Array:
-    """Piecewise-linear effective precipitation (mm/day) following the MATLAB rule.
-
-    Given daily precipitation `pp` (mm), returns ppef.
-    The breakpoints are inspired by the original aux/pp_cotas mapping.
-    """
-    pp = np.asarray(pp)
-    # Breakpoints and slopes derived from the MATLAB snippet
-    # (0, 0), (25, 23.75), (50, 46.25), (75, 66.75), (100, 83), (125, 94.25), (150, 100.25)
-    xp = np.array([0, 25, 50, 75, 100, 125, 150], dtype=float)
-    yp = np.array([0, 23.75, 46.25, 66.75, 83.0, 94.25, 100.25], dtype=float)
-    ppef = np.interp(pp, xp, yp, left=0.95 * pp, right=100.25 + 0.05 * (pp - 150))
-    return ppef
 
 # -------------------------
 # Data containers
@@ -183,97 +169,3 @@ class Soil:
 
         self.soil_layer_depth_mm = _to_array(self.soil_layer_depth_mm, shape)
         self.aut = self.soil_layer_depth_mm * (float(self.cc) - float(self.pmp))
-
-
-# -------------------------
-# Crop parameter interface
-# -------------------------
-
-@dataclass(frozen=True)
-class CropParams(ABC):
-    """
-    Abstract parameter set for a crop.
-
-    Notes
-    -----
-    Python does not support truly abstract dataclass *fields*, but combining
-    ``@dataclass`` with ``ABC`` is fine. To keep the base abstract at runtime,
-    we define one abstract property (``crop_name``). Concrete subclasses must
-    define all numeric fields used by the model.
-    """
-    crop_name: ClassVar[str]
-
-    # Soil water stress thresholds (fractions of available water)
-    au_up: float
-    au_down: float
-    au_up_r: float
-    au_down_r: float
-    au_up_pc: float
-    au_down_pc: float
-
-    # Shape parameters for the stress response (dimensionless)
-    c_forma: float
-    c_forma_r: float
-    c_forma_pc: float
-
-    # Canopy cover development (days after sowing, DAS)
-    dds_in: int
-    dds_max: int
-    dds_sen: int
-    dds_fin: int
-    # This last one was “no_days_cultivo” in MATLAB --- ver linea 29 de
-    # agromodel_model_plantgrowth_v27.m
-
-    # Initial, final, and maximum canopy cover (fractions)
-    c_in: float  # initial cover at emergence
-    c_fin: float  # residual cover in senescence
-    c_max: float  # maximum attainable cover (maize population default)
-    alpha1: float
-    #     = (c_max - c_in) / (
-    #     dds_max - dds_in
-    # )  # daily growth rate to max cover
-
-    # Root dynamics
-    root_growth_rate: float  # mm/day (maize)
-    root_max_mm: float  # This comes from
-    # agromodel_model_plantgrowth_v27.m > line 197, where they take the roots
-    # to be the minimum between 2000 mm and the new updated value. I think
-    # they set 2000 mm as the max because they considered 4 layers of 500 mm.
-    # If that's the case, we should generalize this to
-    # root_max_mm = n_layers * layer_threshold_mm
-    # layer_threshold_mm: float  # 500.0  # per-layer depth used for access rules
-    # This comes from lines 220 to 223 in agromodel_model_plantgrowth_v27.m
-    # THE LAYER THRESHOLD MUST BE PROVIDED BY THE Soil CONTEXT
-    # SEE Soil.soil_layer_depth_mm
-
-    # Radiation use efficiency (biomass per MJ PAR)
-    # Units: g DM per MJ PAR (g/MJ)
-    eur_pot: float  # 3.65
-
-    # Thermal stress (simple trapezoid response)
-    tbr: float  # 8.0
-    tor1: float  # 29.0
-    tor2: float  # 39.0
-    tcr: float  # 45.0
-
-    # Harvest index / ICI (logistic ramp around flowering)
-    # (taken from parametros_maiz.m, lines 39 to 42)
-    df: int  # 58
-    ic_in: float  # 0.001
-    ic_pot_t: float  # 0.48
-    Y: float  # 0.19
-
-    # Transpiration coefficient
-    KC: float  # 0.94
-
-    # WARNING: Optional crude ET0 proxy (only used if ET0 not provided) -- SHOULD NOT BE (?)
-    # k_et0_T: float  # 0.1
-    # k_et0_PAR: float  # 0.02
-    # WARNING: Hargreaves' Equation should have been previously used to estimate ET0
-    # ET0(idx) = 0.0023*(TMPMED(idx)+17.78).*(RAD(idx)/2.45).*((TMPMAX(idx) - TMPMIN(idx)).^0.5);
-    # as taken from unificar_climas_vs.m > line 61
-
-    # # Harvest index to translate biomass to yield
-    # harvest_index: float = 0.5
-    # Harvest index multiplier (keep 1.0 to avoid double-counting with ICI) -- CHECK (?)
-    harvest_index: float  # 1.0
