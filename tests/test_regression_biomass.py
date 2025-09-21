@@ -2,7 +2,9 @@ from pathlib import Path
 import numpy as np
 import numpy.testing as npt
 import h5py
-from risknyield.core.main import Soil, Weather
+from risknyield.core.data_containers import Soil, Weather
+from risknyield.core.main import CropModel
+from risknyield.core.crops import MaizeParams
 from risknyield.library.io_hdf5 import load_results_vars_hdf5  # already in your repo
 
 ATOL = 1e-6
@@ -27,8 +29,8 @@ def _load_inputs(path: Path):
         et0    = w["et0"][...]
 
     soil = Soil(
-        mask_maize=mask_maize, mask_soy=mask_soy,
         lat=lat, lon=lon, water0=water0, dds0=dds0,
+        crop_mask=mask_maize,
     )
     weather = Weather(temp=temp, par=par, precip=precip, et0=et0)
     return soil, weather
@@ -38,14 +40,14 @@ def test_biomass_cum_matches_baseline():
     assert BASELINE.exists(), f"Missing {BASELINE}"
 
     soil, weather = _load_inputs(INPUTS)
-    cur = soil.evolve("maize", weather)
+    cur = CropModel(soil=soil, weather=weather, params=MaizeParams()).evolve()
 
     base = load_results_vars_hdf5(BASELINE, names=["biomass_cum"])
     npt.assert_allclose(cur.biomass_cum, base["biomass_cum"], rtol=RTOL, atol=ATOL)
 
 def test_yield_matches_baseline():
     soil, weather = _load_inputs(INPUTS)
-    cur = soil.evolve("maize", weather)
+    cur = CropModel(soil=soil, weather=weather, params=MaizeParams()).evolve()
 
-    base = load_results_vars_hdf5(BASELINE, names=["yield_"])
-    npt.assert_allclose(cur.yield_, base["yield_"], rtol=RTOL, atol=ATOL)
+    base = load_results_vars_hdf5(BASELINE, names=["yield_tensor"])
+    npt.assert_allclose(cur.yield_tensor, base["yield_tensor"], rtol=RTOL, atol=ATOL)

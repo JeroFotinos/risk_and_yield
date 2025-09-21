@@ -7,7 +7,9 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
-from risknyield.core.main import Soil, Weather
+from risknyield.core.data_containers import Soil, Weather
+from risknyield.core.main import CropModel
+from risknyield.core.crops import MaizeParams
 from risknyield.library.io_hdf5 import load_results_vars_hdf5
 
 # Tolerances reasonably robust to BLAS / platform differences
@@ -24,7 +26,7 @@ FIELDS_3D = [
     "root_depth", "transpiration", "eff_precip", "soil_evap",
     "p_au", "ceh", "ceh_r", "ceh_pc", "cover",
     "t_eur", "eur_act",
-    "biomass_daily", "biomass_cum", "yield_",
+    "biomass_daily", "biomass_cum", "yield_tensor",
 ]
 FIELDS_4D = ["au_layers"]
 
@@ -44,8 +46,8 @@ def _load_inputs(path: Path):
         et0    = w["et0"][...]
 
     soil = Soil(
-        mask_maize=mask_maize, mask_soy=mask_soy,
         lat=lat, lon=lon, water0=water0, dds0=dds0,
+        crop_mask=mask_maize,
     )
     weather = Weather(temp=temp, par=par, precip=precip, et0=et0)
     return soil, weather
@@ -56,7 +58,7 @@ def test_full_results_match_baseline():
     assert BASELINE.exists(), f"Missing baseline fixture: {BASELINE}"
 
     soil, weather = _load_inputs(INPUTS)
-    cur = soil.evolve("maize", weather)
+    cur = CropModel(soil=soil, weather=weather, params=MaizeParams()).evolve()
 
     # Load all baseline variables in one pass (still selective I/O per variable)
     names = FIELDS_1D + FIELDS_3D + FIELDS_4D
@@ -89,7 +91,7 @@ def test_full_results_match_baseline():
         npt.assert_allclose(a, b, rtol=RTOL, atol=ATOL, equal_nan=True, err_msg=f"Mismatch in {name}")
 
     # Extra aggregate guardrail: total yield series over time
-    cur_total_y  = np.nansum(np.nansum(cur.yield_,  axis=0), axis=0)
-    base_total_y = np.nansum(np.nansum(base["yield_"], axis=0), axis=0)
+    cur_total_y  = np.nansum(np.nansum(cur.yield_tensor,  axis=0), axis=0)
+    base_total_y = np.nansum(np.nansum(base["yield_tensor"], axis=0), axis=0)
     npt.assert_allclose(cur_total_y, base_total_y, rtol=RTOL, atol=ATOL, equal_nan=True,
                         err_msg="Mismatch in total yield series")
