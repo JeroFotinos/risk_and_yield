@@ -36,10 +36,15 @@ def _to_array(x: Array | float | int, shape: Tuple[int, int]) -> Array:
 # Data containers
 # -------------------------
 
+
 @dataclass(frozen=True)
 class Weather:
     """
     Forcing time series used by the crop model.
+
+    Dataclass for storing temperature, radiation, precipitation, and
+    evapotranspiration time series. The class is frozen to ensure that the
+    input weather data cannot be accidentally modified during simulation.
 
     Attributes
     ----------
@@ -51,7 +56,14 @@ class Weather:
         Daily precipitation [mm/day].
     et0 : ndarray, shape (T,)
         Reference evapotranspiration [mm/day].
+
+    Raises
+    ------
+    ValueError
+        If any of the input arrays are not 1-D or if their lengths do not
+        match
     """
+
     temp: Array
     par: Array
     precip: Array
@@ -59,61 +71,62 @@ class Weather:
 
     def __post_init__(self):
         # coerce to 1-D float arrays
-        temp   = np.asarray(self.temp,   dtype=float)
-        par    = np.asarray(self.par,    dtype=float)
+        temp = np.asarray(self.temp, dtype=float)
+        par = np.asarray(self.par, dtype=float)
         precip = np.asarray(self.precip, dtype=float)
-        et0    = np.asarray(self.et0,    dtype=float)
+        et0 = np.asarray(self.et0, dtype=float)
 
         # shape checks
-        if temp.ndim != 1 or par.ndim != 1 or precip.ndim != 1 or et0.ndim != 1:
+        if (
+            temp.ndim != 1
+            or par.ndim != 1
+            or precip.ndim != 1
+            or et0.ndim != 1
+        ):
             raise ValueError("All weather series must be 1-D.")
         T = temp.shape[0]
         if not (par.shape[0] == precip.shape[0] == et0.shape[0] == T):
             raise ValueError("All weather series must have the same length T.")
 
-        # assign using object.__setattr__ because the dataclass is frozen
-        object.__setattr__(self, "temp",   temp)
-        object.__setattr__(self, "par",    par)
+        # We assign using object.__setattr__ because the dataclass is frozen
+        object.__setattr__(self, "temp", temp)
+        object.__setattr__(self, "par", par)
         object.__setattr__(self, "precip", precip)
-        object.__setattr__(self, "et0",    et0)
-
+        object.__setattr__(self, "et0", et0)
 
 
 @dataclass
 class Results:
     """
     Simulation outputs (time x space) for key variables.
-
-    Notes
-    -----
-    Shapes are (H, W, T) unless otherwise stated.
     """
-    dates: Array                 # (T,) or integer day indices
-    temp: Array                  # (T,)
-    par: Array                   # (T,)
-    precip: Array                # (T,)
-    et0: Array                   # (T,)
 
-    root_depth: Array            # (H, W, T)
-    transpiration: Array         # (H, W, T)
-    eff_precip: Array            # (H, W, T)
-    soil_evap: Array             # (H, W, T)
+    dates: Array  # (T,) or integer day indices
+    temp: Array  # (T,)
+    par: Array  # (T,)
+    precip: Array  # (T,)
+    et0: Array  # (T,)
 
-    au_layers: Array             # (H, W, L, T)
-    p_au: Array                  # (H, W, T)
+    root_depth: Array  # (H, W, T)
+    transpiration: Array  # (H, W, T)
+    eff_precip: Array  # (H, W, T)
+    soil_evap: Array  # (H, W, T)
 
-    ceh: Array                   # (H, W, T)
-    ceh_r: Array                 # (H, W, T)
-    ceh_pc: Array                # (H, W, T)
+    au_layers: Array  # (H, W, L, T)
+    p_au: Array  # (H, W, T)
 
-    cover: Array                 # (H, W, T)
+    ceh: Array  # (H, W, T)
+    ceh_r: Array  # (H, W, T)
+    ceh_pc: Array  # (H, W, T)
 
-    t_eur: Array                 # (H, W, T)
-    eur_act: Array               # (H, W, T)
+    cover: Array  # (H, W, T)
 
-    biomass_daily: Array         # (H, W, T)
-    biomass_cum: Array           # (H, W, T)
-    yield_tensor: Array          # (H, W, T)
+    t_eur: Array  # (H, W, T)
+    eur_act: Array  # (H, W, T)
+
+    biomass_daily: Array  # (H, W, T)
+    biomass_cum: Array  # (H, W, T)
+    yield_tensor: Array  # (H, W, T)
 
 
 @dataclass
@@ -132,24 +145,35 @@ class Soil:
     crop_mask : ndarray, shape (H, W), bool
         Crop masks (non-overlapping).
     n_layers : int, default=4
-        Number of soil layers.
+        Number of soil layers. They were working with 4 soil layers in the
+        last version of the MATLAB code (thus the default).
     cc : float, default=0.27
-        Field capacity fraction [0-1].
+        Field capacity fraction [0-1]. From spanish “capacidad campo” (para
+        agua disponible).
     pmp : float, default=0.12
         Wilting point fraction [0-1].
     soil_layer_depth_mm : float or ndarray, shape (H, W), default=500.0
         Effective per-layer depth [mm]. Per-layer capacity is
         ``aut = soil_layer_depth_mm * (cc - pmp)``.
+
+    Notes
+    -----
+    - Values for `cc` and `pmp` are spatially constant here, but could be
+      extended to arrays if needed by passing arrays of shape (H, W), or by
+      providing aut directly.
+    - cc and pmp values are taken from `parametros_maiz.m`, having checked
+      that they match the ones in `parametros_soja.m`.
     """
+
     lat: Array
     lon: Array
     water0: Array
     dds0: Array
     crop_mask: Array
-    n_layers: int = 4  # They were working with 4 soil layers in the last version of the code
-    cc: float = 0.27  # capacidad campo para agua disponible 0.32 - 0.35; de parametros_maiz.m
-    pmp: float = 0.12  # es un % funcion espacial del tipo de suelo (laboratorio/mapas); de parametros_maiz.m
-    soil_layer_depth_mm: float | Array = 500.0  # should be the per-layer depth used for access rules
+    n_layers: int = 4
+    cc: float = 0.27
+    pmp: float = 0.12
+    soil_layer_depth_mm: float | Array = 500.0
 
     H: int = field(init=False)
     W: int = field(init=False)
@@ -165,7 +189,11 @@ class Soil:
         self.lat = _to_array(self.lat, shape)
         self.lon = _to_array(self.lon, shape)
 
-        self.crop_mask = _to_array(self.crop_mask, shape).astype(bool, copy=False)
+        self.crop_mask = _to_array(self.crop_mask, shape).astype(
+            bool, copy=False
+        )
 
         self.soil_layer_depth_mm = _to_array(self.soil_layer_depth_mm, shape)
-        self.aut = self.soil_layer_depth_mm * (float(self.cc) - float(self.pmp))
+        self.aut = self.soil_layer_depth_mm * (
+            float(self.cc) - float(self.pmp)
+        )

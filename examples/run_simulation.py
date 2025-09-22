@@ -24,12 +24,14 @@ SOIL_MAT_PATH = Path(DATA_PATH, "Soil")
 # Helper functions for HDF5 persistence for inputs
 # ================================================
 
+
 def _suggest_chunks(shape: tuple[int, ...]) -> Optional[tuple[int, ...]]:
     """Chunk 2D arrays for spatial access; 1D leave contiguous."""
     if len(shape) == 2:
         H, W = shape
         return (min(H, 128), min(W, 128))
     return None
+
 
 def _write_ds(g: h5py.Group, name: str, arr: np.ndarray) -> None:
     arr = np.asarray(arr)
@@ -43,6 +45,7 @@ def _write_ds(g: h5py.Group, name: str, arr: np.ndarray) -> None:
     )
     dset.attrs["shape"] = arr.shape
     dset.attrs["dtype"] = str(arr.dtype)
+
 
 def save_inputs_hdf5(
     path: Path,
@@ -80,17 +83,17 @@ def save_inputs_hdf5(
 
         g_soil = f.create_group("soil")
         _write_ds(g_soil, "mask_maize", mask_maize.astype(bool))
-        _write_ds(g_soil, "mask_soy",   mask_soy.astype(bool))
-        _write_ds(g_soil, "lat",        lat)
-        _write_ds(g_soil, "lon",        lon)
-        _write_ds(g_soil, "dds0",       dds0)
-        _write_ds(g_soil, "water0",     water0)
+        _write_ds(g_soil, "mask_soy", mask_soy.astype(bool))
+        _write_ds(g_soil, "lat", lat)
+        _write_ds(g_soil, "lon", lon)
+        _write_ds(g_soil, "dds0", dds0)
+        _write_ds(g_soil, "water0", water0)
 
         g_weather = f.create_group("weather")
-        _write_ds(g_weather, "temp",   temp)
-        _write_ds(g_weather, "par",    par)
+        _write_ds(g_weather, "temp", temp)
+        _write_ds(g_weather, "par", par)
         _write_ds(g_weather, "precip", precip)
-        _write_ds(g_weather, "et0",    et0)
+        _write_ds(g_weather, "et0", et0)
 
     print(f"[ok] Wrote inputs snapshot: {path.resolve()}")
 
@@ -105,7 +108,9 @@ def load_matlab_file_as_dict(filename: str, verbose=False) -> Dict[str, Any]:
     return loaded_dict
 
 
-def load_weather(path: Path, start_date: datetime, end_date: datetime) -> pd.DataFrame:
+def load_weather(
+    path: Path, start_date: datetime, end_date: datetime
+) -> pd.DataFrame:
     df = pd.read_csv(path)
     df["FECHA"] = pd.to_datetime(df["FECHA"], format="%Y-%m-%d")
     df.rename(
@@ -133,9 +138,15 @@ def load_soil_from_data() -> Tuple[Array, Array, Array, Array, Array, Array]:
     mask_maize: Array = load_matlab_file_as_dict("mat_maiz_2021_lowres.mat")[
         "clase_maiz_2021_lowres"
     ]
-    lat: Array = load_matlab_file_as_dict("mat_maiz_2021_lat_lowres.mat")["lat_lowres"]
-    lon: Array = load_matlab_file_as_dict("mat_maiz_2021_lon_lowres.mat")["lon_lowres"]
-    dds0: Array = load_matlab_file_as_dict("mat_dds_maiz_est_lowres.mat")["dds_est"]
+    lat: Array = load_matlab_file_as_dict("mat_maiz_2021_lat_lowres.mat")[
+        "lat_lowres"
+    ]
+    lon: Array = load_matlab_file_as_dict("mat_maiz_2021_lon_lowres.mat")[
+        "lon_lowres"
+    ]
+    dds0: Array = load_matlab_file_as_dict("mat_dds_maiz_est_lowres.mat")[
+        "dds_est"
+    ]
     water0: Array = (
         load_matlab_file_as_dict("mat_aguadisp_saocom_maiz_2021-2022_2.mat")[
             "a_disp_campo"
@@ -172,7 +183,9 @@ start_date = datetime(2021, 12, 4)
 end_date = datetime(2022, 6, 2)
 
 mask_maize, mask_soy, lat, lon, dds0, water0 = load_soil_from_data()
-temp, par, precip, et0 = load_weather_from_data(WEATHER_CSV_PATH, start_date, end_date)
+temp, par, precip, et0 = load_weather_from_data(
+    WEATHER_CSV_PATH, start_date, end_date
+)
 
 # -----------------------------
 # Initialize Soil model

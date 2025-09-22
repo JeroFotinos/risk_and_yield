@@ -22,7 +22,8 @@ class CropParams:
         Early linear growth slope for cover between dds_in and dds_max.
         If None, computed as (c_max - c_in)/(dds_max - dds_in).
     au_up, au_down : float
-        Water-stress thresholds (fractions of available water) for canopy (CEH).
+        Water-stress thresholds (fractions of available water) for canopy
+        (CEH).
     au_up_r, au_down_r : float
         Water-stress thresholds for RUE.
     au_up_pc, au_down_pc : float
@@ -34,31 +35,35 @@ class CropParams:
     root_max_mm : float
         Maximum rooting depth [mm].
     eur_pot : float
-        Potential RUE [g DM / MJ PAR].
+        Potential RUE [g DM / MJ PAR] (DM refers to dry matter and PAR to
+        photosynthetically active radiation).
     tbr, tor1, tor2, tcr : float
-        Thermal response trapezoid breakpoints [°C] (base, opt1, opt2, ceiling).
+        Thermal response trapezoid breakpoints [°C]
+        (base, opt1, opt2, ceiling).
     df, ic_in, ic_pot_t, Y : (int, float, float, float)
         Harvest index / ICI logistic parameters.
     KC : float, default=0.94
         Transpiration coefficient.
     harvest_index : float, default=1.0
-        Multiplier applied to biomass → yield (keep 1.0 if ICI already used).
+        Multiplier applied to convert biomass to yield (keep 1.0 if ICI
+        already used).
 
     Notes
     -----
-    - This class is frozen and uses slots for immutability and memory efficiency.
+    - This class is frozen for immutability.
+    - It uses slots for memory efficiency.
     - Defaults reproduce the **maize** configuration; use `from_preset("soy")`
       or `soy()` to instantiate soybean parameters.
     - Soil/hydrology parameters like `cc`, `pmp`, `prof_suelo`, `CN`, `S`,
       `c_esuelo`, `esuelo_pot` belong in `Soil`/hydrology modules, not here.
-    
+
     Examples
     --------
     >>> cp = CropParams.maize()          # or simply CropParams()
     >>> cp = CropParams.soy()            # or CropParams.from_preset("soy")
     """
 
-    # --- Identity ---
+    # --- Species ---
     crop_name: str = "maize"
 
     # --- Phenology / cover ---
@@ -91,7 +96,7 @@ class CropParams:
 
     # --- Root dynamics ---
     root_growth_rate: float = 30.0  # mm/day
-    root_max_mm: float = 2000.0     # mm
+    root_max_mm: float = 2000.0  # mm
 
     # --- Radiation use efficiency ---
     eur_pot: float = 3.65  # g/MJ
@@ -119,20 +124,43 @@ class CropParams:
         # Compute alpha1 if not provided
         if self.alpha1 is None:
             denom = max(self.dds_max - self.dds_in, 1e-12)
-            object.__setattr__(self, "alpha1", (self.c_max - self.c_in) / denom)
+            object.__setattr__(
+                self, "alpha1", (self.c_max - self.c_in) / denom
+            )
 
         # Basic validations
-        if not (0.0 <= self.c_in <= self.c_max <= 1.0 and 0.0 <= self.c_fin <= 1.0):
-            raise ValueError("Cover fractions must satisfy 0 ≤ c_in ≤ c_max ≤ 1 and 0 ≤ c_fin ≤ 1.")
+        if not (
+            0.0 <= self.c_in <= self.c_max <= 1.0 and 0.0 <= self.c_fin <= 1.0
+        ):
+            raise ValueError(
+                "Cover fractions must satisfy "
+                "0 ≤ c_in ≤ c_max ≤ 1 and 0 ≤ c_fin ≤ 1."
+            )
         if not (self.dds_in <= self.dds_max <= self.dds_sen <= self.dds_fin):
-            raise ValueError("Phenology must satisfy dds_in ≤ dds_max ≤ dds_sen ≤ dds_fin.")
-        for v in (self.au_up, self.au_down, self.au_up_r, self.au_down_r, self.au_up_pc, self.au_down_pc):
+            raise ValueError(
+                "Phenology must satisfy dds_in ≤ dds_max ≤ dds_sen ≤ dds_fin."
+            )
+        for v in (
+            self.au_up,
+            self.au_down,
+            self.au_up_r,
+            self.au_down_r,
+            self.au_up_pc,
+            self.au_down_pc,
+        ):
             if not (0.0 <= v <= 1.0):
-                raise ValueError("All water-stress thresholds must be in [0, 1].")
+                raise ValueError(
+                    "All water-stress thresholds must be in [0, 1]."
+                )
         if not (self.tbr <= self.tor1 <= self.tor2 <= self.tcr):
-            raise ValueError("Thermal trapezoid must satisfy tbr ≤ tor1 ≤ tor2 ≤ tcr.")
+            raise ValueError(
+                "Thermal trapezoid must satisfy tbr ≤ tor1 ≤ tor2 ≤ tcr."
+            )
         if self.root_growth_rate < 0.0 or self.root_max_mm <= 0.0:
-            raise ValueError("Root parameters must have root_growth_rate ≥ 0 and root_max_mm > 0.")
+            raise ValueError(
+                "Root parameters must have root_growth_rate ≥ 0 and "
+                "root_max_mm > 0."
+            )
         if self.eur_pot <= 0.0:
             raise ValueError("eur_pot must be positive.")
         if self.KC <= 0.0:
@@ -150,7 +178,7 @@ class CropParams:
 
     @classmethod
     def soy(cls) -> "CropParams":
-        """Return a `CropParams` instance with soybean parameters (from MATLAB config)."""
+        """Return a `CropParams` instance with soybean parameters."""
         return cls.from_preset("soy")
 
     @classmethod
@@ -180,21 +208,39 @@ class CropParams:
             "soy": dict(
                 crop_name="soy",
                 # phenology & cover
-                dds_in=7, dds_max=60, dds_sen=120, dds_fin=137,  # agromodel_model_plantgrowth_v27.m > line 53
-                c_in=0.039, c_fin=0.01, c_max=0.95,
+                dds_in=7,
+                dds_max=60,
+                dds_sen=120,
+                dds_fin=137,  # agromodel_model_plantgrowth_v27.m > line 53
+                c_in=0.039,
+                c_fin=0.01,
+                c_max=0.95,
                 alpha1=None,  # computed from c_in/c_max/dds_in/dds_max
                 # water stress thresholds & shapes
-                au_up=0.65, au_down=0.15, c_forma=1.2,
-                au_up_r=0.5,  au_down_r=0.0,  c_forma_r=3.0,
-                au_up_pc=0.60, au_down_pc=0.15, c_forma_pc=1.3,
+                au_up=0.65,
+                au_down=0.15,
+                c_forma=1.2,
+                au_up_r=0.5,
+                au_down_r=0.0,
+                c_forma_r=3.0,
+                au_up_pc=0.60,
+                au_down_pc=0.15,
+                c_forma_pc=1.3,
                 # roots
-                root_growth_rate=30.0, root_max_mm=2000.0,
+                root_growth_rate=30.0,
+                root_max_mm=2000.0,
                 # RUE
                 eur_pot=1.36,
                 # thermal trapezoid (°C)
-                tbr=10.0, tor1=20.0, tor2=30.0, tcr=40.0,
+                tbr=10.0,
+                tor1=20.0,
+                tor2=30.0,
+                tcr=40.0,
                 # ICI / harvest index
-                df=37, ic_in=0.001, ic_pot_t=0.48, Y=0.19,
+                df=37,
+                ic_in=0.001,
+                ic_pot_t=0.48,
+                Y=0.19,
                 # transpiration coefficient
                 KC=1.11,
                 harvest_index=1.0,
@@ -203,4 +249,6 @@ class CropParams:
         try:
             return cls(**presets[name])
         except KeyError as e:
-            raise KeyError(f"Unknown preset '{name}'. Known: {sorted(presets)}") from e
+            raise KeyError(
+                f"Unknown preset '{name}'. Known: {sorted(presets)}"
+            ) from e

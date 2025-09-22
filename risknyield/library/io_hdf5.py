@@ -1,34 +1,51 @@
-"""Module to save/load Results objects to/from HDF5 files.
-"""
+"""Module to save/load Results objects to/from HDF5 files."""
 
 from __future__ import annotations
-from dataclasses import is_dataclass, fields
-from pathlib import Path
+
 import json
 import platform
 import subprocess
-from typing import Iterable, Optional, Dict, Any
+from pathlib import Path
+from typing import Any, Dict, Iterable, Optional
 
 import h5py
+
 import numpy as np
 
-# List fields you want to persist (explicit is safer than introspecting properties)
+# List fields you want to persist (explicit is safer than introspecting
+# properties)
 RESULTS_ARRAY_FIELDS = [
     "dates",
-    "temp", "par", "precip", "et0",
-    "root_depth", "transpiration", "eff_precip", "soil_evap",
-    "au_layers", "p_au",
-    "ceh", "ceh_r", "ceh_pc",
+    "temp",
+    "par",
+    "precip",
+    "et0",
+    "root_depth",
+    "transpiration",
+    "eff_precip",
+    "soil_evap",
+    "au_layers",
+    "p_au",
+    "ceh",
+    "ceh_r",
+    "ceh_pc",
     "cover",
-    "t_eur", "eur_act",
-    "biomass_daily", "biomass_cum", "yield_",
+    "t_eur",
+    "eur_act",
+    "biomass_daily",
+    "biomass_cum",
+    "yield_",
 ]
+
 
 def _git_commit_or_none() -> Optional[str]:
     try:
-        return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True
+        ).strip()
     except Exception:
         return None
+
 
 def _suggest_chunks(shape: tuple[int, ...]) -> Optional[tuple[int, ...]]:
     """
@@ -46,26 +63,41 @@ def _suggest_chunks(shape: tuple[int, ...]) -> Optional[tuple[int, ...]]:
         return (min(H, 64), min(W, 64), min(L, 4), min(T, 1))
     return None
 
+
 def _write_dataset(g: h5py.Group, name: str, arr: np.ndarray) -> None:
     arr = np.asarray(arr)
-    # Handle datetime64 (if you ever store true datetimes) — store epoch seconds int64
+    # Handle datetime64
+    # (if we ever store true datetimes) — store epoch seconds int64
     if np.issubdtype(arr.dtype, np.datetime64):
         arr = arr.astype("datetime64[s]").astype(np.int64)
         dset = g.create_dataset(
-            name, data=arr, compression="gzip", compression_opts=4, shuffle=True, chunks=_suggest_chunks(arr.shape)
+            name,
+            data=arr,
+            compression="gzip",
+            compression_opts=4,
+            shuffle=True,
+            chunks=_suggest_chunks(arr.shape),
         )
         dset.attrs["logical_dtype"] = "datetime64[s]"
         return
 
     # Everything else stays as-is (float, int, bool)
     dset = g.create_dataset(
-        name, data=arr, compression="gzip", compression_opts=4, shuffle=True, chunks=_suggest_chunks(arr.shape)
+        name,
+        data=arr,
+        compression="gzip",
+        compression_opts=4,
+        shuffle=True,
+        chunks=_suggest_chunks(arr.shape),
     )
     # Helpful shape metadata (humans/tools)
     dset.attrs["shape"] = arr.shape
     dset.attrs["dtype"] = str(arr.dtype)
 
-def save_results_hdf5(results: Any, path: Path, extra_meta: Optional[Dict[str, Any]] = None) -> None:
+
+def save_results_hdf5(
+    results: Any, path: Path, extra_meta: Optional[Dict[str, Any]] = None
+) -> None:
     """
     Persist all arrays from a Results-like object to HDF5 with metadata.
     """
@@ -86,7 +118,11 @@ def save_results_hdf5(results: Any, path: Path, extra_meta: Optional[Dict[str, A
     with h5py.File(path, "w") as f:
         # File-level metadata
         for k, v in meta.items():
-            f.attrs[k] = json.dumps(v) if isinstance(v, (dict, list)) else ("" if v is None else v)
+            f.attrs[k] = (
+                json.dumps(v)
+                if isinstance(v, (dict, list))
+                else ("" if v is None else v)
+            )
 
         # Store arrays in a group
         g = f.create_group("results")
@@ -99,9 +135,17 @@ def save_results_hdf5(results: Any, path: Path, extra_meta: Optional[Dict[str, A
 
     print(f"[ok] Wrote HDF5 snapshot: {path.resolve()}")
 
-def load_results_vars_hdf5(path: Path, names: Iterable[str]) -> Dict[str, np.ndarray]:
+
+def load_results_vars_hdf5(
+    path: Path, names: Iterable[str]
+) -> Dict[str, np.ndarray]:
     """
-    Load only selected variables from the HDF5 snapshot. Returns dict[name] -> ndarray.
+    Load only selected variables from the HDF5 snapshot.
+
+    Returns
+    -------
+    dict
+        Mapping of variable name to array.
     """
     out: Dict[str, np.ndarray] = {}
     with h5py.File(path, "r") as f:
@@ -115,10 +159,12 @@ def load_results_vars_hdf5(path: Path, names: Iterable[str]) -> Dict[str, np.nda
                 out[name] = out[name].astype("datetime64[s]")
     return out
 
+
 def load_results_hdf5(path: Path, ResultsClass) -> Any:
     """
-    Load the full Results object (constructs ResultsClass by passing arrays as kwargs).
-    This assumes ResultsClass __init__ takes the same field names as RESULTS_ARRAY_FIELDS.
+    Load the full Results object (constructs ResultsClass by passing arrays as
+    kwargs). This assumes ResultsClass __init__ takes the same field names as
+    RESULTS_ARRAY_FIELDS.
     """
     with h5py.File(path, "r") as f:
         g = f["results"]
@@ -126,7 +172,11 @@ def load_results_hdf5(path: Path, ResultsClass) -> Any:
         for name in RESULTS_ARRAY_FIELDS:
             if name in g:
                 arr = g[name][...]
-                if g[name].attrs.get("logical_dtype", "").startswith("datetime64"):
+                if (
+                    g[name]
+                    .attrs.get("logical_dtype", "")
+                    .startswith("datetime64")
+                ):
                     arr = arr.astype("datetime64[s]")
                 kwargs[name] = arr
         return ResultsClass(**kwargs)
