@@ -49,10 +49,21 @@ def _git_commit_or_none() -> Optional[str]:
 
 def _suggest_chunks(shape: tuple[int, ...]) -> Optional[tuple[int, ...]]:
     """
-    Choose chunks to allow slicing by time efficiently.
-    For 3D (H, W, T): (min(H,64), min(W,64), min(T,1))
-    For 4D (H, W, L, T): (min(H,64), min(W,64), min(L,4), min(T,1))
-    For 1D/2D, return None (let HDF5 pick or store contiguous).
+    Choose chunk sizes to enable efficient time slicing.
+
+    For 3D (H, W, T): ``(min(H, 64), min(W, 64), min(T, 1))``.
+    For 4D (H, W, L, T): ``(min(H, 64), min(W, 64), min(L, 4), min(T, 1))``.
+    For 1D/2D, return ``None`` (let HDF5 pick or store contiguous).
+
+    Parameters
+    ----------
+    shape : tuple of int
+        Dataset shape.
+
+    Returns
+    -------
+    tuple of int or None
+        Suggested chunk shape, or ``None`` if unchunked/automatic.
     """
     ndim = len(shape)
     if ndim == 3:
@@ -98,9 +109,7 @@ def _write_dataset(g: h5py.Group, name: str, arr: np.ndarray) -> None:
 def save_results_hdf5(
     results: Any, path: Path, extra_meta: Optional[Dict[str, Any]] = None
 ) -> None:
-    """
-    Persist all arrays from a Results-like object to HDF5 with metadata.
-    """
+    """Persist arrays from a Results-like object to HDF5 with metadata."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -162,9 +171,23 @@ def load_results_vars_hdf5(
 
 def load_results_hdf5(path: Path, ResultsClass) -> Any:
     """
-    Load the full Results object (constructs ResultsClass by passing arrays as
-    kwargs). This assumes ResultsClass __init__ takes the same field names as
-    RESULTS_ARRAY_FIELDS.
+    Load a full Results object from HDF5.
+
+    Constructs ``ResultsClass`` by passing arrays as keyword arguments; field
+    names are those in ``RESULTS_ARRAY_FIELDS``.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        HDF5 file path.
+    ResultsClass : type
+        Class to instantiate (must accept the fields listed in
+        ``RESULTS_ARRAY_FIELDS`` as keyword arguments).
+
+    Returns
+    -------
+    Any
+        An instance of ``ResultsClass`` populated from the file.
     """
     with h5py.File(path, "r") as f:
         g = f["results"]

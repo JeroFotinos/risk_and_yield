@@ -1,3 +1,33 @@
+"""
+Core containers for weather, soil, and simulation outputs.
+
+This module defines immutable data structures used by the crop model and a
+small helper to broadcast inputs to a common grid shape.
+
+Classes
+-------
+Weather
+    Frozen dataclass storing forcing time series (temperature, PAR,
+    precipitation, ET0) with validation and normalization.
+Results
+    Container for simulation output tensors (time × space).
+Soil
+    Static spatial context and soil capacities (no evolution logic).
+
+Functions
+---------
+_to_array
+    Coerce scalars/arrays to a 2D array of target shape by broadcasting.
+
+Notes
+-----
+- ``Weather`` coerces input series to 1-D float arrays and checks length
+  consistency.
+- ``Soil`` harmonizes per-pixel arrays to shape ``(H, W)`` and derives the
+  per-layer available-water capacity as
+  ``aut = soil_layer_depth_mm * (cc - pmp)``.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -70,6 +100,27 @@ class Weather:
     et0: Array
 
     def __post_init__(self):
+        """
+        Normalize inputs to 1-D float arrays and validate lengths.
+
+        This method converts ``temp``, ``par``, ``precip``, and ``et0`` to
+        ``float`` NumPy arrays with one dimension and checks that all series
+        share the same length ``T``.
+
+        Parameters
+        ----------
+        self : Weather
+            The instance being initialized.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        ValueError
+            If any input series is not 1-D or if the lengths are inconsistent.
+        """
         # coerce to 1-D float arrays
         temp = np.asarray(self.temp, dtype=float)
         par = np.asarray(self.par, dtype=float)
@@ -97,9 +148,7 @@ class Weather:
 
 @dataclass
 class Results:
-    """
-    Simulation outputs (time x space) for key variables.
-    """
+    """Simulation outputs (time × space) for key variables."""
 
     dates: Array  # (T,) or integer day indices
     temp: Array  # (T,)
@@ -180,6 +229,29 @@ class Soil:
     aut: Array = field(init=False)
 
     def __post_init__(self):
+        """
+        Harmonize shapes to ``(H, W)`` and derive per-layer capacity.
+
+        This method infers ``H`` and ``W`` from ``water0``, broadcasts
+        ``dds0``, ``lat``, ``lon``, ``crop_mask``, and
+        ``soil_layer_depth_mm`` to ``(H, W)``, and computes the per-layer
+        available-water capacity ``aut = soil_layer_depth_mm * (cc - pmp)``.
+
+        Parameters
+        ----------
+        self : Soil
+            The instance being initialized.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        ValueError
+            If ``water0`` is not 2-D or if shapes cannot be reconciled to
+            ``(H, W)``.
+        """
         if np.asarray(self.water0).ndim != 2:
             raise ValueError("water0 must be 2D (H, W).")
         self.H, self.W = np.asarray(self.water0).shape

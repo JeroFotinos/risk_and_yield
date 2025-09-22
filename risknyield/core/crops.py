@@ -1,3 +1,95 @@
+"""
+Crop parameter presets and dataclass container.
+
+This module provides a single, concrete dataclass :class:`CropParams` that
+encapsulates crop-specific parameters used by the crop growth model. The class
+is **frozen** (immutable) and uses **slots** for memory efficiency. It defaults
+to a maize parameterization and includes convenience constructors to load other
+presets (e.g., soybean).
+
+The parameters cover phenology and canopy cover trajectory, water-stress
+response thresholds and shapes, root growth, radiation-use efficiency (RUE),
+thermal stress (trapezoid), and harvest-index/partitioning controls.
+
+Classes
+-------
+CropParams
+    Immutable container for crop parameters. Defaults to maize. Provides
+    :meth:`CropParams.maize`, :meth:`CropParams.soy`, and
+    :meth:`CropParams.from_preset` for preset selection.
+
+Functions
+---------
+None. All factory helpers are classmethods on :class:`CropParams`.
+
+Notes
+-----
+- **Scope**: This module defines *crop* parameters only. Soil and hydrology
+  parameters (e.g., field capacity ``cc``, wilting point ``pmp``,
+  soil depth, Curve Number ``CN``, runoff/soil-evaporation coefficients) belong
+  to soil/hydrology components and are intentionally excluded here.
+- **Defaults**: Instantiating :class:`CropParams` without arguments yields a
+  maize configuration. Use :meth:`CropParams.soy` or
+  :meth:`CropParams.from_preset("soy")` for soybean.
+- **Derived parameters**: If ``alpha1`` (early linear cover-growth slope) is
+  not provided, it is computed as ::
+
+      alpha1 = (c_max - c_in) / max(dds_max - dds_in, 1e-12)
+
+- **Validation**: The constructor checks basic consistency:
+  ``0 ≤ c_in ≤ c_max ≤ 1``, ``0 ≤ c_fin ≤ 1``,
+  ``dds_in ≤ dds_max ≤ dds_sen ≤ dds_fin``,
+  all water-stress thresholds in ``[0, 1]``,
+  and ordered thermal breakpoints ``tbr ≤ tor1 ≤ tor2 ≤ tcr``.
+
+Examples
+--------
+Create maize parameters (defaults):
+
+>>> from risknyield.core.crops import CropParams
+>>> cp = CropParams.maize()      # equivalent to CropParams()
+
+Create soybean parameters from the built-in preset:
+
+>>> cp_soy = CropParams.soy()
+
+Override selected fields (immutability enforced after construction):
+
+>>> cp_custom = CropParams.maize()
+>>> cp_custom = CropParams(
+...     crop_name="maize",
+...     dds_in=7, dds_max=50, dds_sen=90, dds_fin=125,
+...     c_in=cp_custom.c_in, c_fin=cp_custom.c_fin, c_max=0.92,
+...     alpha1=None,  # will be recomputed from the new dds/c values
+...     au_up=cp_custom.au_up, au_down=cp_custom.au_down,
+...     c_forma=cp_custom.c_forma, au_up_r=cp_custom.au_up_r,
+...     au_down_r=cp_custom.au_down_r, c_forma_r=cp_custom.c_forma_r,
+...     au_up_pc=cp_custom.au_up_pc, au_down_pc=cp_custom.au_down_pc,
+...     c_forma_pc=cp_custom.c_forma_pc,
+...     root_growth_rate=cp_custom.root_growth_rate,
+...     root_max_mm=cp_custom.root_max_mm, eur_pot=cp_custom.eur_pot,
+...     tbr=cp_custom.tbr, tor1=cp_custom.tor1, tor2=cp_custom.tor2,
+...     tcr=cp_custom.tcr, df=cp_custom.df, ic_in=cp_custom.ic_in,
+...     ic_pot_t=cp_custom.ic_pot_t, Y=cp_custom.Y, KC=cp_custom.KC,
+...     harvest_index=cp_custom.harvest_index,
+... )
+
+Use with the model:
+
+>>> from risknyield.core.data_containers import Soil, Weather
+>>> from risknyield.core.main import CropModel
+>>> soil, weather = ...  # constructed elsewhere
+>>> params = CropParams.soy()
+>>> model = CropModel(soil=soil, weather=weather, params=params)
+>>> results = model.evolve()
+
+See Also
+--------
+risknyield.core.data_containers : Soil/Weather/Results containers.
+risknyield.core.main.CropModel : Execution engine consuming CropParams.
+risknyield.library.hydrology : Hydrology kernels (effective precipitation).
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -121,6 +213,51 @@ class CropParams:
     # Post-init: compute & validate
     # -------------------------
     def __post_init__(self):
+        r"""
+        Compute derived parameters and run validations.
+
+        This method computes ``alpha1`` when it is not provided and performs a
+        set of sanity checks on cover fractions, phenology ordering,
+        water-stress thresholds, thermal breakpoints, root parameters, and
+        scaling coefficients.
+
+        Parameters
+        ----------
+        self : CropParams
+            The instance being initialized.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        ValueError
+            If any validation fails. Possible messages include:
+            - "Cover fractions must satisfy 0 ≤ c_in ≤ c_max ≤ 1 and
+              0 ≤ c_fin ≤ 1."
+            - "Phenology must satisfy dds_in ≤ dds_max ≤ dds_sen ≤ dds_fin."
+            - "All water-stress thresholds must be in [0, 1]."
+            - "Thermal trapezoid must satisfy tbr ≤ tor1 ≤ tor2 ≤ tcr."
+            - "Root parameters must have root_growth_rate ≥ 0 and
+              root_max_mm > 0."
+            - "eur_pot must be positive."
+            - "KC must be positive."
+            - "harvest_index must be in [0, 1]."
+
+        Notes
+        -----
+        If ``alpha1`` is ``None``, it is computed as
+
+        .. math::
+
+        \\alpha_1 = \\frac{c_{\\max} - c_{\\in}}{\\max(\\mathrm{dds}_{\\max}
+        - \\mathrm{dds}_{\\in}, 10^{-12})}.
+
+        A denominator guard is applied to avoid division by zero when
+        ``dds_max == dds_in``. Because :class:`CropParams` is frozen,
+        assignment of the derived ``alpha1`` uses ``object.__setattr__``.
+        """
         # Compute alpha1 if not provided
         if self.alpha1 is None:
             denom = max(self.dds_max - self.dds_in, 1e-12)

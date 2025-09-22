@@ -1,3 +1,13 @@
+"""
+Hydrology kernels used by the crop model.
+
+Functions
+---------
+effective_precipitation
+    Piecewise-linear transform converting daily precipitation to effective
+    precipitation (mm/day), compatible with the original MATLAB mapping.
+"""
+
 from __future__ import annotations
 
 import numpy as np
