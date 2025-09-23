@@ -52,3 +52,6 @@ Thumbs.db
 
 # Notebooks outputs
 *.nbconvert.ipynb
+
+# salida h5
+*.h5
