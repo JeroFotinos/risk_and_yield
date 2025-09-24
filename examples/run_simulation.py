@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 from pprint import pprint
 from typing import Any, Dict, Tuple, Optional
@@ -8,8 +10,10 @@ import pandas as pd
 from scipy.io import loadmat
 import h5py
 
-from risknyield.core.main import Weather
-from risknyield.core.main import Soil
+# NEW API
+from risknyield.core.crops import CropParams
+from risknyield.core.data_containers import Weather, Soil
+from risknyield.core.model import CropModel
 
 from risknyield.library.io_hdf5 import save_results_hdf5
 
@@ -18,12 +22,13 @@ Array = np.ndarray
 DATA_PATH = Path(Path(__file__).parent.parent, "data")
 WEATHER_CSV_PATH = Path(DATA_PATH, "Weather", "weather.csv")
 SOIL_MAT_PATH = Path(DATA_PATH, "Soil")
+OUT_PATH = Path(Path(__file__).parent.parent, "examples", "outputs")
+OUT_PATH.mkdir(parents=True, exist_ok=True)
 
 
 # ================================================
 # Helper functions for HDF5 persistence for inputs
 # ================================================
-
 
 def _suggest_chunks(shape: tuple[int, ...]) -> Optional[tuple[int, ...]]:
     """Chunk 2D arrays for spatial access; 1D leave contiguous."""
@@ -50,8 +55,7 @@ def _write_ds(g: h5py.Group, name: str, arr: np.ndarray) -> None:
 def save_inputs_hdf5(
     path: Path,
     *,
-    mask_maize: np.ndarray,
-    mask_soy: np.ndarray,
+    crop_mask: np.ndarray,
     lat: np.ndarray,
     lon: np.ndarray,
     dds0: np.ndarray,
@@ -66,15 +70,15 @@ def save_inputs_hdf5(
 ) -> None:
     """
     Persist the *inputs* required to re-run the scenario, decoupled from examples/.
-    Produces tests/fixtures/maize_inputs.h5 with groups:
-      /soil/{mask_maize,mask_soy,lat,lon,dds0,water0}
+    Produces an inputs snapshot with groups:
+      /soil/{crop_mask,lat,lon,dds0,water0}
       /weather/{temp,par,precip,et0}
     File attributes record start/end dates as ISO strings.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(path, "w") as f:
-        f.attrs["schema"] = "risknyield.inputs/1"
+        f.attrs["schema"] = "risknyield.inputs/2"
         f.attrs["start_date"] = start_date.strftime("%Y-%m-%d")
         f.attrs["end_date"] = end_date.strftime("%Y-%m-%d")
         if extra_meta:
@@ -82,8 +86,7 @@ def save_inputs_hdf5(
                 f.attrs[k] = str(v)
 
         g_soil = f.create_group("soil")
-        _write_ds(g_soil, "mask_maize", mask_maize.astype(bool))
-        _write_ds(g_soil, "mask_soy", mask_soy.astype(bool))
+        _write_ds(g_soil, "crop_mask", crop_mask.astype(bool))
         _write_ds(g_soil, "lat", lat)
         _write_ds(g_soil, "lon", lon)
         _write_ds(g_soil, "dds0", dds0)
@@ -134,7 +137,8 @@ def load_weather(
 # -----------------------------
 # Loaders
 # -----------------------------
-def load_soil_from_data() -> Tuple[Array, Array, Array, Array, Array, Array]:
+def load_soil_from_data() -> Tuple[Array, Array, Array, Array, Array]:
+    """Return (mask_maize, lat, lon, dds0, water0) from example .mat files."""
     mask_maize: Array = load_matlab_file_as_dict("mat_maiz_2021_lowres.mat")[
         "clase_maiz_2021_lowres"
     ]
@@ -151,21 +155,13 @@ def load_soil_from_data() -> Tuple[Array, Array, Array, Array, Array, Array]:
         load_matlab_file_as_dict("mat_aguadisp_saocom_maiz_2021-2022_2.mat")[
             "a_disp_campo"
         ]
-        # / 100.0
-    )  # Si water0 es entre (0,1) hay que dividir. Pregungar a jero. Porcentaje de agua util.
-    # Rta: no, es el agua total por unidad de área del pixel en mm.
-    mask_soy = np.zeros_like(mask_maize)
-    return (mask_maize, mask_soy, lat, lon, dds0, water0)
+    )  # mm
+    return (mask_maize, lat, lon, dds0, water0)
 
 
 def load_weather_from_data(
     data_path: Path, start_time: datetime, end_time: datetime
-) -> Tuple[
-    Array,
-    Array,
-    Array,
-    Array,
-]:
+) -> Tuple[Array, Array, Array, Array]:
     df_weather: pd.DataFrame = load_weather(data_path, start_time, end_time)
     temp, par, precip, et0 = (
         df_weather["temp"].to_numpy(),
@@ -179,40 +175,67 @@ def load_weather_from_data(
 # -----------------------------
 # Set parameters from data files
 # -----------------------------
-start_date = datetime(2021, 12, 4)
-end_date = datetime(2022, 6, 2)
+if __name__ == "__main__":
+    start_date = datetime(2021, 12, 4)
+    end_date = datetime(2022, 6, 2)
 
-mask_maize, mask_soy, lat, lon, dds0, water0 = load_soil_from_data()
-temp, par, precip, et0 = load_weather_from_data(
-    WEATHER_CSV_PATH, start_date, end_date
-)
+    mask_maize, lat, lon, dds0, water0 = load_soil_from_data()
+    temp, par, precip, et0 = load_weather_from_data(
+        WEATHER_CSV_PATH, start_date, end_date
+    )
 
-# -----------------------------
-# Initialize Soil model
-# -----------------------------
-weather = Weather(
-    temp=temp,
-    par=par,
-    precip=precip,
-    et0=et0,
-)
+    # -----------------------------
+    # Initialize Weather & Soil
+    # -----------------------------
+    weather = Weather(temp=temp, par=par, precip=precip, et0=et0)
 
-target_crop = "maize"
-soil = Soil(
-    mask_maize=mask_maize,
-    mask_soy=mask_soy,
-    lat=lat,
-    lon=lon,
-    water0=water0,
-    dds0=dds0,
-)
+    target_crop = "maize"  # or "soy" if you like
+    crop_mask = mask_maize.astype(bool)
 
-# -----------------------------
-# Run simulation
-# -----------------------------
+    soil = Soil(
+        lat=lat,
+        lon=lon,
+        water0=water0,
+        dds0=dds0,
+        crop_mask=crop_mask,
+        # n_layers, cc, pmp, soil_layer_depth_mm keep defaults unless you want to override
+    )
 
-results = soil.evolve(target_crop, weather)
+    # -----------------------------
+    # Run simulation with new API
+    # -----------------------------
+    params = CropParams.from_preset(target_crop)  # CropParams.maize() works too
+    model = CropModel(soil=soil, weather=weather, params=params)
+    results = model.evolve()
 
+    # -----------------------------
+    # Save results + (optionally) inputs snapshot
+    # -----------------------------
+    out_results = OUT_PATH / f"sim_{target_crop}.h5"
+    save_results_hdf5(results, out_results)
+    print(f"[ok] Saved results: {out_results.resolve()}")
+
+    # Optional: persist inputs to rerun this scenario later
+    out_inputs = OUT_PATH / f"inputs_{target_crop}.h5"
+    save_inputs_hdf5(
+        out_inputs,
+        crop_mask=crop_mask,
+        lat=lat,
+        lon=lon,
+        dds0=dds0,
+        water0=water0,
+        temp=temp,
+        par=par,
+        precip=precip,
+        et0=et0,
+        start_date=start_date,
+        end_date=end_date,
+        extra_meta={"example": "run_simulation.py"},
+    )
+    print(f"[ok] Saved inputs:  {out_inputs.resolve()}")
+
+
+# # =========== LEGACY CODE FOR MAKING FIXTURES BELOW =============
 # # -----------------------------
 # # Save results
 # # -----------------------------
