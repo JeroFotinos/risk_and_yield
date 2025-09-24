@@ -12,7 +12,7 @@ import pytest
 
 from risknyield.core.crops import CropParams
 from risknyield.core.data_containers import Soil, Weather
-from risknyield.core.main import CropModel
+from risknyield.core.model import CropModel
 from risknyield.library.io_hdf5 import load_results_vars_hdf5
 
 # Tolerances reasonably robust to BLAS / platform differences
