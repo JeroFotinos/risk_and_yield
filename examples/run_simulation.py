@@ -233,36 +233,3 @@ if __name__ == "__main__":
         extra_meta={"example": "run_simulation.py"},
     )
     print(f"[ok] Saved inputs:  {out_inputs.resolve()}")
-
-
-# # =========== LEGACY CODE FOR MAKING FIXTURES BELOW =============
-# # -----------------------------
-# # Save results
-# # -----------------------------
-# BASELINE = Path("tests/fixtures/maize_baseline.h5")
-# save_results_hdf5(results, BASELINE, extra_meta={
-#     "scenario": "maize_2021_12_04__2022_06_02",
-# })
-# print(f"Saved results to {BASELINE}")
-
-# # -----------------------------
-# # Save inputs (for tests)
-# # -----------------------------
-# INPUTS = Path("tests/fixtures/maize_inputs.h5")
-# save_inputs_hdf5(
-#     INPUTS,
-#     mask_maize=mask_maize,
-#     mask_soy=mask_soy,
-#     lat=lat,
-#     lon=lon,
-#     dds0=dds0,
-#     water0=water0,
-#     temp=temp,
-#     par=par,
-#     precip=precip,
-#     et0=et0,
-#     start_date=start_date,
-#     end_date=end_date,
-#     extra_meta={"scenario": "maize_2021_12_04__2022_06_02"},
-# )
-# print(f"Saved inputs to {INPUTS}")

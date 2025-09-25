@@ -56,8 +56,7 @@ Array = np.ndarray
 
 @dataclass(slots=True)
 class CropModel:
-    """
-    Deterministic, vectorized crop water–biomass model.
+    r"""Deterministic, vectorized crop water–biomass model.
 
     The model integrates daily over the weather horizon to update per-pixel
     state: root-accessible water (by layer), canopy cover, stress factors,
@@ -120,9 +119,7 @@ class CropModel:
     # Public API
     # ---------------------------
     def evolve(self) -> Results:
-        """
-        Simulates over the weather horizon returning a Results object.
-        """
+        """Simulates over the weather horizon returning a Results object."""
         # Alias for object attributes
         s, w, cp = self.soil, self.weather, self.params
 
@@ -377,13 +374,13 @@ class CropModel:
         self, dds0: Array, s: Soil, cp: CropParams, state: dict
     ) -> tuple[Array, Array]:
         """
-        Initialize model state at t=0 (cover, layer water, roots, DD90)
-        in-place.
+        Initialize model state at t=0 (in-place).
 
-        This sets ``cover[:, :, 0]``, ``au[:, :, :, 0]``, ``dd90[:, :]``, and
-        ``root_depth[:, :, 0]``, and also primes ``p_au[:, :, 0]`` from these
-        initial fields. Returns the working days-after-sowing array and the
-        initial running-maximum cover.
+        This sets ``cover[:, :, 0]``, layer water ``au[:, :, :, 0]``,
+        continuous drought-days counter ``dd90[:, :]`` (where drought is
+        defined as ``p_au < 0.9``), and ``root_depth[:, :, 0]``, and also
+        primes ``p_au[:, :, 0]`` from these initial fields. Returns the
+        working days-after-sowing array and the initial running-maximum cover.
 
         Parameters
         ----------
@@ -679,11 +676,12 @@ class CropModel:
         L: int,
     ) -> Array:
         r"""
-        Compute fraction of available water for each pixel, taking into
-        account the root-accessible layers.
+        Compute fraction of available water for plants in each pixel.
 
-        For each pixel (i, j), build a per-layer accessibility mask using the
-        **strict** rule used in the original MATLAB:
+        Compute fraction of available water in each pixel, taking into account
+        the root-accessible layers. For each pixel (i, j), build a per-layer
+        accessibility mask using the **strict** rule used in the original
+        MATLAB code:
             - layer 0 is always accessible
             - layer k (>=1) is accessible iff root_depth > k * layer_threshold
 
@@ -724,23 +722,23 @@ class CropModel:
         """
         H, W = root_depth.shape
 
-        # Build an (H, W, L) boolean mask with strict '>' for k>=1
-        ks = np.arange(L)[None, None, :]  # (1,1,L) = 0..L-1
-        # layer 0 always accessible; for k>=1 require
-        # root_depth > k * threshold (exclusive)
-        # or root_depth >= k * threshold (inclusive)
-        mask_layers = (ks == 0) | (
-            root_depth[..., None] > ks * layer_threshold[..., None]
+        # Number of accessible layers (1..L)
+        n_accessible = (
+            np.floor_divide(
+                np.maximum(root_depth, 0.0), layer_threshold
+            ).astype(int)
+            + 1
         )
+        n_accessible = np.clip(n_accessible, 1, L)
 
-        # Number of accessible layers per pixel
-        n_acc = mask_layers.sum(axis=2).astype(float)  # (H, W)
+        # Per-layer accessibility mask: layer k is usable iff n_accessible > k
+        mask_layers = np.stack([(n_accessible > k) for k in range(L)], axis=2)
 
         # Total accessible water
         sum_layers = np.sum(au_t * mask_layers, axis=2)  # (H, W)
 
         # maximum (potential) accessible capacity
-        cap_accessible = aut * n_acc
+        cap_accessible = aut * n_accessible.astype(float)  # (H, W)
 
         # Fraction of available water, capped to [0, 1]:
         # It's the actual water total in the accessible layers (sum_layers)
@@ -749,7 +747,6 @@ class CropModel:
             return np.clip(
                 sum_layers / np.maximum(cap_accessible, 1e-9), 0.0, 1.0
             )
-
 
     @staticmethod
     def stress_sigmoid(pau, up, down, c):
@@ -801,10 +798,7 @@ class CropModel:
     def _water_stress_coeffs(
         p_au_now: Array, crop_mask: Array, cp: CropParams
     ) -> tuple[Array, Array, Array]:
-        """
-        Returns water-stress coefficients for CT (ceh), RUE (ceh_r), and HI/IC
-        (ceh_pc).
-        """
+        """Get stress coeff. for CT (ceh), RUE (ceh_r), and HI/IC (ceh_pc)."""
         ceh = (
             CropModel.stress_sigmoid(
                 p_au_now, cp.au_up, cp.au_down, cp.c_forma
@@ -830,10 +824,11 @@ class CropModel:
         Ti: float, H: int, W: int, cp: CropParams, crop_mask: Array
     ) -> Array:
         """
-        Thermal trapezoid factor T°EUR on the (H,W) grid for scalar daily mean
-        temperature.
+        Thermal stress factor T°EUR on the (H,W) grid for daily temperature.
 
-        Currently, we model the temperature response as a trapezoid:
+        Thermal stress factor T°EUR on the (H,W) grid for scalar daily mean
+        temperature. Currently, we model the temperature response as a
+        trapezoid:
         - Crushing cold (factor=0) below tbr
         - Linear increase from 0 to 1 between tbr and tor1
         - No stress (factor=1) between tor1 and tor2
@@ -891,6 +886,8 @@ class CropModel:
     @staticmethod
     def _rue_actual(eur_pot: float, t_eur_t: Array, ceh_r_t: Array) -> Array:
         """
+        Compute actual radiation-use efficiency (RUE) on the (H,W) grid.
+
         Actual RUE = potential RUE × thermal-stress factor × water-stress
         factor.
 
@@ -919,8 +916,7 @@ class CropModel:
         crop_mask: Array,
     ) -> tuple[Array, Array]:
         """
-        Compute canopy cover at day *t* and update the running maximum for
-        senescence.
+        Get canopy cover at day *t* and the running maximum for senescence.
 
         The update is piecewise in days after sowing (DAS) with water-stress
         modulation via ``ceh_t ∈ [0, 1]``:
@@ -1028,15 +1024,14 @@ class CropModel:
         crop_mask: Array,
     ) -> tuple[Array, Array, Array]:
         r"""
-        Compute daily transpiration, effective precipitation, and soil
-        evaporation; update ``dd90`` in-place.
+        Compute fluxes of water into and out of the soil for day *t*.
 
         This routine computes the daily water fluxes: water arriving to the
         soil as effective precipitation, water leaving the soil as
         transpiration through the crop, and water leaving the soil as direct
         evaporation. Soil evaporation depends on the amount of days with
         drought (i.e., when the available water is below 90%), counted by
-        the ``dd90`` variable in the state, updated in-place.
+        the ``dd90`` variable in the state, returned to be externally updated.
         Formulas (per-pixel):
         - **Transpiration:** :math:`T_t = \\mathrm{ceh\\_r}_t \\cdot
         (\\mathrm{cover}_t \\cdot K_C) \\cdot \\mathrm{ET0}_t`, where
@@ -1088,6 +1083,8 @@ class CropModel:
             Effective precipitation [mm day⁻¹].
         eva_t : ndarray, shape (H, W)
             Soil evaporation [mm day⁻¹].
+        dd90_new : ndarray, shape (H, W), int
+            Updated drought-days counter.
         """
         # Transpiration: ceh_r * (cover * KC) * ET0
         transp_t = ceh_r_t * (cover_t * cp.KC) * float(et0_t)
@@ -1099,16 +1096,13 @@ class CropModel:
         dd90_new = dd90 + 1
         dd90_new[p_au_now > 0.9] = 0
 
-        # Soil evaporation with DD90 decay when p_au < 0.9
+        # Evaporation base term
         eva_t = 1.1 * float(et0_t) * (1.0 - cover_t)
+        # Soil evaporation with DD90 decay when p_au < 0.9
         low = p_au_now < 0.9
         if np.any(low):
-            eva_t[low] = (
-                1.1
-                * float(et0_t)
-                * (1.0 - cover_t[low])
-                * np.power(np.maximum(dd90_new[low], 1), -0.5)
-            )
+            decay = np.power(np.maximum(dd90_new.astype(float), 1.0), -0.5)
+            eva_t[low] = 1.1 * float(et0_t) * (1.0 - cover_t[low]) * decay[low]
 
         # Mask fluxes
         transp_t *= crop_mask
@@ -1131,8 +1125,7 @@ class CropModel:
         layer_threshold: Array,
     ) -> Array:
         """
-        Update per-layer water with equipartitioned transpiration and
-        sequential percolation.
+        Update per-layer water: equipartitioned transpiration and percolation.
 
         Accessibility for deeper layers follows the original strict rule:
         layer k (k>=1) is usable **only if**
@@ -1179,25 +1172,23 @@ class CropModel:
         H, W = root_prev.shape
         au_t = au_prev.copy()
 
-        # Per-layer mask (H, W, L):
-        # element (i, j, k) is 1 if layer k of pixel (i, j) is accessible
-        # (Strict '>' accessibility mask (H, W, L): layer 0 always accessible
-        # - Exclusive)
-        # (or use >= so the k-th layer becomes usable exactly at depth
-        # k * threshold - Inclusive)
-        mask_layers = np.empty((H, W, L), dtype=bool)
-        mask_layers[..., 0] = True
-        for k in range(1, L):
-            mask_layers[..., k] = root_prev > (k * layer_threshold)
-
-        # Count accessible layers per pixel
-        n_acc = mask_layers.sum(axis=2).astype(float)  # (H, W)
+        # Number of accessible layers and mask
+        n_accessible = (
+            np.floor_divide(
+                np.maximum(root_prev, 0.0), layer_threshold
+            ).astype(int)
+            + 1
+        )
+        n_accessible = np.clip(n_accessible, 1, L)
+        mask_layers = np.stack([(n_accessible > k) for k in range(L)], axis=2)
 
         # Per-layer share of transpiration on accessible layers
         # Layer-wise loss = (transp / n_accessible) on accessible layers
-        per_pixel_layer_share = transp_t / np.maximum(n_acc, 1)
+        per_pixel_layer_share = transp_t / np.maximum(
+            n_accessible.astype(float), 1.0
+        )
         # shape (H, W)
-        loss_layers = mask_layers * per_pixel_layer_share[..., None]
+        loss_layers = per_pixel_layer_share[..., None] * mask_layers
         # shape (H, W, L)
 
         # Percolate from top to bottom
@@ -1216,7 +1207,6 @@ class CropModel:
             perc_prev = perc
 
         return au_t
-
 
     # ---------------------------
     # Harvest index & biomass

@@ -56,3 +56,10 @@ Thumbs.db
 # Large files
 *.h5
 *.hdf5
+
+# Ignore examples outputs and cache
+examples/outputs/
+examples/__pycache__/
+
+# Ignore particular files
+examples/comparison_pre-post_refact.ipynb

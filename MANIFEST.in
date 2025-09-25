@@ -4,14 +4,18 @@ include pyproject.toml
 
 recursive-include risknyield *.py
 recursive-include data *
-recursive-include examples *
+recursive-include examples *.py
+recursive-include examples *.ipynb
 recursive-include .github *
 
 exclude dev-requirements.txt
 exclude tox.ini
 
+recursive-exclude examples/outputs *.h5
+recursive-exclude examples/__pycache__ *
 recursive-exclude tests *
 recursive-exclude docs *
+recursive-exclude legacy *
 recursive-exclude risknyield.egg-info *
 recursive-exclude .pytest_cache *
 recursive-exclude .ipynb_checkpoints *

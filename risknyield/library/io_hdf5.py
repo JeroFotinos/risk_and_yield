@@ -34,7 +34,7 @@ RESULTS_ARRAY_FIELDS = [
     "eur_act",
     "biomass_daily",
     "biomass_cum",
-    "yield_",
+    "yield_tensor",
 ]
 
 

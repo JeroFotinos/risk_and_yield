@@ -22,8 +22,7 @@ def _load_inputs(path: Path):
     with h5py.File(path, "r") as f:
         s = f["soil"]
         w = f["weather"]
-        mask_maize = s["mask_maize"][...].astype(bool)
-        # mask_soy = s["mask_soy"][...].astype(bool)
+        crop_mask = s["crop_mask"][...].astype(bool)
         lat = s["lat"][...]
         lon = s["lon"][...]
         dds0 = s["dds0"][...]
@@ -39,7 +38,7 @@ def _load_inputs(path: Path):
         lon=lon,
         water0=water0,
         dds0=dds0,
-        crop_mask=mask_maize,
+        crop_mask=crop_mask,
     )
     weather = Weather(temp=temp, par=par, precip=precip, et0=et0)
     return soil, weather
