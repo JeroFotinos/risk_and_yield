@@ -18,6 +18,7 @@ recursive-exclude examples/__pycache__ *
 recursive-exclude tests *
 recursive-exclude docs *
 recursive-exclude legacy *
+recursive-exclude projects *
 recursive-exclude risknyield.egg-info *
 recursive-exclude .pytest_cache *
 recursive-exclude .ipynb_checkpoints *
