@@ -6,10 +6,12 @@ recursive-include risknyield *.py
 recursive-include data *
 recursive-include examples *.py
 recursive-include examples *.ipynb
+recursive-include examples *.gif
 recursive-include .github *
 
 exclude dev-requirements.txt
 exclude tox.ini
+exclude examples/comparison_pre-post_refact.ipynb
 
 recursive-exclude examples/outputs *.h5
 recursive-exclude examples/__pycache__ *
