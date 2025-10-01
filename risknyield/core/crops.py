@@ -108,20 +108,36 @@ class CropParams:
     dds_in, dds_max, dds_sen, dds_fin : int
         Phenology breakpoints in days after sowing (emergence, max cover,
         senescence onset, end of season).
-    c_in, c_fin, c_max : float
-        Cover fractions in [0, 1] at emergence, residual, and maximum.
+    c_in : float
+        Cover fractions in [0, 1] at emergence.
+    c_max : float
+        Cover fractions in [0, 1] at maximum.
+    c_fin : float
+        Cover fractions in [0, 1] at end of season.
     alpha1 : float or None, default=None
         Early linear growth slope for cover between dds_in and dds_max.
         If None, computed as (c_max - c_in)/(dds_max - dds_in).
-    au_up, au_down : float
-        Water-stress thresholds (fractions of available water) for canopy
-        (CEH).
-    au_up_r, au_down_r : float
-        Water-stress thresholds for RUE.
-    au_up_pc, au_down_pc : float
-        Water-stress thresholds for harvest index / partition coefficient.
-    c_forma, c_forma_r, c_forma_pc : float
-        Shape parameters (dimensionless) for the three stress responses.
+    au_up : float
+        Upper water-stress threshold for canopy (CEH) in [0, 1].
+    au_down : float
+        Lower water-stress threshold for canopy (CEH) in [0, 1].
+    au_up_r : float
+        Upper water-stress threshold for RUE in [0, 1].
+    au_down_r : float
+        Lower water-stress threshold for RUE in [0, 1].
+    au_up_pc : float
+        Upper water-stress threshold for harvest index / partition
+        coefficient in [0, 1].
+    au_down_pc : float
+        Lower water-stress threshold for harvest index / partition
+        coefficient in [0, 1].
+    c_forma : float
+        Shape parameter (dimensionless) for the canopy cover stress response.
+    c_forma_r : float
+        Shape parameter (dimensionless) for the RUE stress response.
+    c_forma_pc : float
+        Shape parameter (dimensionless) for the harvest index / partition
+        coefficient stress response.
     root_growth_rate : float
         Root growth rate [mm/day].
     root_max_mm : float
@@ -129,9 +145,18 @@ class CropParams:
     eur_pot : float
         Potential RUE [g DM / MJ PAR] (DM refers to dry matter and PAR to
         photosynthetically active radiation).
-    tbr, tor1, tor2, tcr : float
-        Thermal response trapezoid breakpoints [°C]
-        (base, opt1, opt2, ceiling).
+    tbr : float
+        Temperature below which we have crushing cold stress [°C].
+        Must satisfy tbr ≤ tor1 ≤ tor2 ≤ tcr.
+    tor1 : float
+        Lower optimal temperature for growth [°C].
+        Must satisfy tbr ≤ tor1 ≤ tor2 ≤ tcr.
+    tor2 : float
+        Upper optimal temperature for growth [°C].
+        Must satisfy tbr ≤ tor1 ≤ tor2 ≤ tcr.
+    tcr : float
+        Temperature above which we have crushing heat stress [°C].
+        Must satisfy tbr ≤ tor1 ≤ tor2 ≤ tcr.
     df, ic_in, ic_pot_t, Y : (int, float, float, float)
         Harvest index / ICI logistic parameters.
     KC : float, default=0.94

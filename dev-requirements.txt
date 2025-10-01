@@ -16,5 +16,11 @@ rich
 rich[jupyter]
 statprof-smarkets
 sphinx
+furo
+sphinx-autodoc-typehints
+nbsphinx
+sphinx-copybutton
+pydata-sphinx-theme
+sphinx-design
 pydocstyle
 toml
