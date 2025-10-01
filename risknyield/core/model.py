@@ -61,6 +61,7 @@ class CropModel:
     The model integrates daily over the weather horizon to update per-pixel
     state: root-accessible water (by layer), canopy cover, stress factors,
     biomass, and yield proxy. It uses:
+
       - :class:`~risknyield.core.data_containers.Soil` for grid geometry,
         masks, initial water, per-layer capacities, and layer thickness.
       - :class:`~risknyield.core.data_containers.Weather` for forcing
