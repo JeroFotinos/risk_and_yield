@@ -1,0 +1,53 @@
+# New mapping from risknyield (20 variables). 
+~ means in the original mapping.
+au_layers       shape=(278, 358, 4, 181), dtype=float64 ~
+biomass_cum     shape=(278, 358, 181), dtype=float64 ~
+biomass_daily   shape=(278, 358, 181), dtype=float64 ~
+ceh             shape=(278, 358, 181), dtype=float64 ~
+ceh_pc          shape=(278, 358, 181), dtype=float64 ~
+ceh_r           shape=(278, 358, 181), dtype=float64 ~
+cover           shape=(278, 358, 181), dtype=float64 ~
+eff_precip      shape=(278, 358, 181), dtype=float64 ~
+eur_act         shape=(278, 358, 181), dtype=float64 ~
+p_au            shape=(278, 358, 181), dtype=float64 ~
+root_depth      shape=(278, 358, 181), dtype=float64 ~
+soil_evap       shape=(278, 358, 181), dtype=float64 ~
+transpiration   shape=(278, 358, 181), dtype=float64 ~
+
+dates           shape=(181,), dtype=int64
+et0             shape=(181,), dtype=float64
+par             shape=(181,), dtype=float64
+precip          shape=(181,), dtype=float64
+t_eur           shape=(278, 358, 181), dtype=float64
+temp            shape=(181,), dtype=float64
+yield_tensor    shape=(278, 358, 181), dtype=float64
+
+
+# Legacy mapping (13 variables). 
+{'EUR': "eur_act", 
+'biomasaAcumulada': "biomass_cum" , 
+'biomasaDiaria': "biomass_daily", 
+'cEstresHidrico': "ceh", 
+'cEstresHidricoRadiacion': "ceh_r", 
+'ceh_pc': "ceh_pc", 
+'evaporacion': "soil_evap", 
+'porcAguaUtil': "p_au", 
+'porcCobertura': "cover", 
+'precipitacion_efectiva': "eff_precip", 
+'profRaiz': "root_depth", 
+'rendimiento': "yield_tensor" , 
+'transpiracion': "transpiration"}
+
+
+# Left variables from legacy (11 variables). 
+'ici', 
+'drenaje', 
+'diasDesdePrec', 
+'percolacion_capa_1', 
+'percolacion_capa_2', 
+'percolacion_capa_3', 
+'aguaUtilDisp1': ,
+'aguaUtilDisp2': , 
+'aguaUtilDisp3': ,
+'aguaUtilDisp4': , 
+'cEstrsTerminco': , 
